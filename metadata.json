@@ -1,0 +1,8 @@
+{
+  "name": "Remix Workstream2467",
+  "description": "An open-source task management platform designed to streamline team collaboration and project tracking efficiency.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
