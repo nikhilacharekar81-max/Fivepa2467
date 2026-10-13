@@ -237,9 +237,11 @@ export interface InvoiceItem {
   status: 'paid' | 'in_escrow' | 'unpaid' | 'refunded';
   items: Array<{ description: string; quantity: number; unitPrice: number; amount: number }>;
   subtotal: number;
-  platformFee: number;
+  serviceFee?: number;      // client service fee charged on top of the subtotal
+  smallOrderFee?: number;   // flat fee for orders under the small-order threshold
+  platformFee: number;      // platform commission taken from the freelancer
   tax: number;
-  total: number;
+  total: number;            // what the client paid (subtotal + client fees)
   notes?: string;
   relatedOrderId?: string;
 }

@@ -42,6 +42,10 @@ export interface AdminPageProps {
   orders: Order[];
   proposals: Proposal[];
   platformFee?: number;
+  clientServiceFee?: number;
+  smallOrderFeeThreshold?: number;
+  smallOrderFeeAmount?: number;
+  escrowProtectionDays?: number;
   navigate: (to: string, e?: React.MouseEvent) => void;
   fetchAllAdminData: () => Promise<void> | void;
   getDeviceId?: () => string;
@@ -59,6 +63,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({
   orders,
   proposals,
   platformFee = 20,
+  clientServiceFee = 5.5,
+  smallOrderFeeThreshold = 200,
+  smallOrderFeeAmount = 3.5,
+  escrowProtectionDays = 14,
   navigate,
   fetchAllAdminData,
   getDeviceId = () => {
@@ -533,6 +541,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({
         {adminTab === 'settings' && (
           <SiteFeeSettingsModule
             currentUser={effectiveAdminUser}
+            initialTakeRate={platformFee}
+            initialClientServiceFee={clientServiceFee}
+            initialSmallOrderFeeThreshold={smallOrderFeeThreshold}
+            initialSmallOrderFeeAmount={smallOrderFeeAmount}
+            initialEscrowHoldDays={escrowProtectionDays}
             onSettingsSaved={() => fetchAllAdminData()}
           />
         )}

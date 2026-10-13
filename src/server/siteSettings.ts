@@ -1,6 +1,7 @@
 // Authoritative Settings & Shared Fee Calculation Service for WorkPerHour
 
 import { financeLedger, FinanceLedgerEngine } from './financeLedger.js';
+import { DEFAULT_FEE_CONFIG, calculateOrderFees, type FeeConfig } from '../shared/fees.js';
 
 export interface WebsiteSettings {
   siteName: string;
@@ -13,9 +14,11 @@ export interface WebsiteSettings {
 }
 
 export interface PlatformCommissionSettings {
-  commissionPercent: number; // e.g. 10 or 15
-  buyerProcessingFeePercent: number; // e.g. 2.5
-  buyerProcessingFeeFixed: number; // e.g. 0.00
+  commissionPercent: number; // platform cut of the gig price; freelancer keeps the rest (default 20)
+  buyerProcessingFeePercent: number; // client service fee on top of the gig price (default 5.5)
+  smallOrderFeeAmount: number; // flat fee added when the gig price is under the threshold (default 3.50)
+  smallOrderFeeThreshold: number; // gig price below this triggers the small-order fee (default 200)
+  refundClientFeesOnFullRefund: boolean; // return service + small-order fee when an order is fully refunded
   minimumOrderAmount: number; // e.g. 5.00
   escrowProtectionDays: number; // default 14
   commissionDeductionTiming: 'on_escrow_release' | 'on_order_checkout';
@@ -137,9 +140,11 @@ export const DEFAULT_SITE_SETTINGS: SiteSettingsState = {
     copyrightText: '© 2026 WorkPerHour Inc. All rights reserved.'
   },
   commission: {
-    commissionPercent: 20, // 20% platform take rate
-    buyerProcessingFeePercent: 2.5, // 2.5% payment processing surcharge
-    buyerProcessingFeeFixed: 0.0,
+    commissionPercent: DEFAULT_FEE_CONFIG.commissionPercent, // 20% platform take rate
+    buyerProcessingFeePercent: DEFAULT_FEE_CONFIG.buyerFeePercent, // 5.5% client service fee
+    smallOrderFeeAmount: DEFAULT_FEE_CONFIG.smallOrderFee, // $3.50 flat fee...
+    smallOrderFeeThreshold: DEFAULT_FEE_CONFIG.smallOrderThreshold, // ...on orders under $200
+    refundClientFeesOnFullRefund: true,
     minimumOrderAmount: 10.0,
     escrowProtectionDays: 14, // 14-day mandatory vault
     commissionDeductionTiming: 'on_escrow_release'
@@ -219,8 +224,8 @@ export class SiteSettingsService {
     // Deep clone defaults
     this.settings = JSON.parse(JSON.stringify(DEFAULT_SITE_SETTINGS));
     this.seedInitialHistory();
-    // Sync initial commission rate to finance engine
-    financeLedger.setPlatformCommissionRate(this.settings.commission.commissionPercent);
+    // Sync initial fee rules to finance engine
+    this.syncFeesToLedger();
   }
 
   private seedInitialHistory() {
@@ -254,34 +259,44 @@ export class SiteSettingsService {
     return [...this.history];
   }
 
-  // Shared Fee Calculation Service: Used across entire application
-  public calculateFeeSplit(orderAmount: number, customCommissionPercent?: number) {
-    const commissionPercent = customCommissionPercent !== undefined
-      ? customCommissionPercent
-      : this.settings.commission.commissionPercent;
-
-    const roundedAmount = FinanceLedgerEngine.round(Math.max(0, orderAmount));
-    const platformFee = FinanceLedgerEngine.round(roundedAmount * (commissionPercent / 100));
-    const freelancerAmount = FinanceLedgerEngine.round(roundedAmount - platformFee);
-    const freelancerPercent = FinanceLedgerEngine.round(100 - commissionPercent);
-
-    // Separate Buyer Processing Fee calculation
-    const buyerFee = FinanceLedgerEngine.round(
-      (roundedAmount * (this.settings.commission.buyerProcessingFeePercent / 100)) +
-      this.settings.commission.buyerProcessingFeeFixed
-    );
-    const totalBuyerCharged = FinanceLedgerEngine.round(roundedAmount + buyerFee);
-
+  // Shared Fee Calculation Service: Used across entire application.
+  // Delegates to src/shared/fees.ts so the ledger, the API and the UI all use identical math.
+  public getFeeConfig(customCommissionPercent?: number): FeeConfig {
+    const c = this.settings.commission;
     return {
-      orderAmount: roundedAmount,
-      commissionPercent,
-      platformFee,
-      freelancerPercent,
-      freelancerAmount,
-      buyerProcessingFeePercent: this.settings.commission.buyerProcessingFeePercent,
-      buyerFee,
-      totalBuyerCharged
+      commissionPercent: customCommissionPercent !== undefined ? customCommissionPercent : c.commissionPercent,
+      buyerFeePercent: c.buyerProcessingFeePercent,
+      smallOrderFee: c.smallOrderFeeAmount,
+      smallOrderThreshold: c.smallOrderFeeThreshold
     };
+  }
+
+  public calculateFeeSplit(orderAmount: number, customCommissionPercent?: number) {
+    const f = calculateOrderFees(Math.max(0, orderAmount), this.getFeeConfig(customCommissionPercent));
+    return {
+      orderAmount: f.gigPrice,
+      commissionPercent: this.getFeeConfig(customCommissionPercent).commissionPercent,
+      platformFee: f.platformCommission,
+      freelancerPercent: f.freelancerPercent,
+      freelancerAmount: f.freelancerNet,
+      buyerProcessingFeePercent: this.settings.commission.buyerProcessingFeePercent,
+      buyerFee: f.serviceFee,
+      smallOrderFee: f.smallOrderFee,
+      totalBuyerCharged: f.clientTotal
+    };
+  }
+
+  // Pushes every fee rule to the finance ledger, which is what actually enforces them on money movement.
+  private syncFeesToLedger() {
+    const c = this.settings.commission;
+    financeLedger.configure({
+      commissionPercent: c.commissionPercent,
+      buyerFeePercent: c.buyerProcessingFeePercent,
+      smallOrderFee: c.smallOrderFeeAmount,
+      smallOrderThreshold: c.smallOrderFeeThreshold,
+      refundClientFeesOnFullRefund: c.refundClientFeesOnFullRefund,
+      minimumOrderAmount: c.minimumOrderAmount
+    });
   }
 
   // Update a specific section of settings
@@ -319,11 +334,15 @@ export class SiteSettingsService {
       ...updates
     };
 
-    // If commission rate changed, sync immediately to double-entry finance ledger
-    if (section === 'commission' && (updates as any).commissionPercent !== undefined) {
-      const newRate = Number((updates as any).commissionPercent);
-      if (newRate >= 0 && newRate <= 100) {
-        financeLedger.setPlatformCommissionRate(newRate);
+    // If any fee rule changed, sync immediately to the double-entry finance ledger
+    if (section === 'commission') {
+      try {
+        this.syncFeesToLedger();
+      } catch (err) {
+        // Invalid fee values must never reach money movement: roll the section back and re-throw.
+        this.settings[section] = currentSection;
+        this.syncFeesToLedger();
+        throw err;
       }
     }
 
@@ -348,7 +367,7 @@ export class SiteSettingsService {
       });
 
       if (section === 'commission') {
-        financeLedger.setPlatformCommissionRate(DEFAULT_SITE_SETTINGS.commission.commissionPercent);
+        this.syncFeesToLedger();
       }
     } else {
       this.settings = JSON.parse(JSON.stringify(DEFAULT_SITE_SETTINGS));

@@ -7,19 +7,28 @@ import { UserAccount } from '../types';
 
 interface SiteFeeSettingsModuleProps {
   currentUser?: UserAccount | null;
+  initialTakeRate?: number;
+  initialClientServiceFee?: number;
+  initialSmallOrderFeeThreshold?: number;
+  initialSmallOrderFeeAmount?: number;
+  initialEscrowHoldDays?: number;
   onSettingsSaved?: (newSettings?: any) => void;
 }
 
 export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
   currentUser,
+  initialTakeRate = 20,
+  initialClientServiceFee = 5.5,
+  initialSmallOrderFeeThreshold = 200,
+  initialSmallOrderFeeAmount = 3.5,
+  initialEscrowHoldDays = 14,
   onSettingsSaved
 }) => {
-  const [takeRate, setTakeRate] = useState<number>(20);
-  const [buyerFee, setBuyerFee] = useState<number>(3); // Needed for simulator
-  const [clientServiceFee, setClientServiceFee] = useState<number>(5.5);
-  const [smallOrderFeeThreshold, setSmallOrderFeeThreshold] = useState<number>(200);
-  const [smallOrderFeeAmount, setSmallOrderFeeAmount] = useState<number>(3.50);
-  const [escrowHoldDays, setEscrowHoldDays] = useState<number>(14);
+  const [takeRate, setTakeRate] = useState<number>(initialTakeRate);
+  const [clientServiceFee, setClientServiceFee] = useState<number>(initialClientServiceFee);
+  const [smallOrderFeeAmount, setSmallOrderFeeAmount] = useState<number>(initialSmallOrderFeeAmount);
+  const [smallOrderFeeThreshold, setSmallOrderFeeThreshold] = useState<number>(initialSmallOrderFeeThreshold);
+  const [escrowHoldDays, setEscrowHoldDays] = useState<number>(initialEscrowHoldDays);
   const [autoCompleteDays, setAutoCompleteDays] = useState<number>(3);
   const [minOrder, setMinOrder] = useState<number>(10);
   const [minPayout, setMinPayout] = useState<number>(50);
@@ -84,7 +93,9 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
 
   const handleResetDefaults = () => {
     setTakeRate(20);
-    setBuyerFee(3);
+    setClientServiceFee(5.5);
+    setSmallOrderFeeAmount(3.5);
+    setSmallOrderFeeThreshold(200);
     setEscrowHoldDays(14);
     setAutoCompleteDays(3);
     setMinOrder(10);
@@ -101,11 +112,13 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
 
   // Simulator calculations
   const orderGrossValue = simOrderAmount;
-  const buyerServiceSurcharge = Number((orderGrossValue * (buyerFee / 100)).toFixed(2));
-  const buyerPaysAtCheckout = orderGrossValue + buyerServiceSurcharge;
+  const buyerServiceSurcharge = Number((orderGrossValue * (clientServiceFee / 100)).toFixed(2));
+  const smallOrderFeeApplies = orderGrossValue < smallOrderFeeThreshold;
+  const smallOrderFeeToApply = smallOrderFeeApplies ? smallOrderFeeAmount : 0;
+  const buyerPaysAtCheckout = orderGrossValue + buyerServiceSurcharge + smallOrderFeeToApply;
   const platformTakeRateDeduction = Number((orderGrossValue * (takeRate / 100)).toFixed(2));
   const freelancerNetPayout = orderGrossValue - platformTakeRateDeduction;
-  const totalPlatformMargin = buyerServiceSurcharge + platformTakeRateDeduction;
+  const totalPlatformMargin = buyerServiceSurcharge + platformTakeRateDeduction + smallOrderFeeToApply;
   const netMarginPercent = ((totalPlatformMargin / buyerPaysAtCheckout) * 100).toFixed(1);
 
   return (
@@ -146,7 +159,7 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
         </div>
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-1">
           <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider block">Buyer Fee</span>
-          <div className="text-xl font-bold text-blue-600 font-mono">{buyerFee}%</div>
+          <div className="text-xl font-bold text-blue-600 font-mono">{clientServiceFee}%</div>
           <span className="text-[10px] text-slate-500 block">Checkout Surcharge</span>
         </div>
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-1">
@@ -514,6 +527,12 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
                   <span>Client Service Fee (+{clientServiceFee}%):</span>
                   <span className="font-bold">+${(orderGrossValue * (clientServiceFee / 100)).toFixed(2)}</span>
                 </div>
+                {smallOrderFeeApplies && (
+                  <div className="flex justify-between text-amber-600">
+                    <span>Small Order Fee:</span>
+                    <span className="font-bold">+${smallOrderFeeAmount.toFixed(2)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between text-slate-900 font-bold pt-1 border-t border-slate-100">
                   <span>Buyer Pays at Checkout:</span>
                   <span>${buyerPaysAtCheckout.toFixed(2)}</span>

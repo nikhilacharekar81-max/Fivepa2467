@@ -1488,8 +1488,50 @@ const handlePostSiteSettings = (req: Request, res: Response) => {
 
 app.get('/api/admin/settings', handleGetSiteSettings);
 app.get('/api/admin/site-settings', handleGetSiteSettings);
-app.post('/api/admin/settings', handlePostSiteSettings);
-app.post('/api/admin/site-settings', handlePostSiteSettings);
+// Fee settings control real money movement: only administrators may change them.
+app.post('/api/admin/settings', requireAdmin, handlePostSiteSettings);
+app.patch('/api/admin/settings', requireAdmin, handlePostSiteSettings);
+app.post('/api/admin/site-settings', requireAdmin, handlePostSiteSettings);
+app.patch('/api/admin/site-settings', requireAdmin, handlePostSiteSettings);
+
+// ==========================================
+// ORDER PRICING & FEE QUOTES (server is the only authority on what a client is charged)
+// ==========================================
+// Resolves the gig price (gig + selected extras) from server-side data. Never trusts a price sent by the browser.
+function resolveGigOrderPrice(gigId: string, extraIds: unknown): { gig: Gig; gigPrice: number; extrasTitles: string[] } {
+  const gig = gigs.find(g => g.id === gigId);
+  if (!gig) throw Object.assign(new Error('Gig not found.'), { status: 404 });
+  if (gig.status && gig.status !== 'published') throw Object.assign(new Error('This gig is not available for ordering.'), { status: 400 });
+  const ids = Array.isArray(extraIds) ? Array.from(new Set(extraIds.map(String))) : [];
+  let cents = Math.round(Number(gig.price) * 100);
+  if (!Number.isFinite(cents) || cents <= 0) throw Object.assign(new Error('This gig has no valid price.'), { status: 400 });
+  const extrasTitles: string[] = [];
+  for (const id of ids) {
+    const extra = (gig.extras || []).find(e => e.id === id);
+    if (!extra) throw Object.assign(new Error(`Unknown add-on "${id}" for this gig.`), { status: 400 });
+    cents += Math.round(Number(extra.price) * 100);
+    extrasTitles.push(extra.title);
+  }
+  return { gig, gigPrice: cents / 100, extrasTitles };
+}
+
+// Public fee quote for the checkout screen: same math the ledger will apply when the order is funded.
+app.get('/api/fees/quote', (req, res) => {
+  try {
+    let gigPrice: number;
+    if (typeof req.query.gigId === 'string' && req.query.gigId) {
+      const extraIds = typeof req.query.extraIds === 'string' && req.query.extraIds ? req.query.extraIds.split(',') : [];
+      gigPrice = resolveGigOrderPrice(req.query.gigId, extraIds).gigPrice;
+    } else {
+      gigPrice = Number(req.query.amount);
+    }
+    if (!Number.isFinite(gigPrice) || gigPrice < 0) return res.status(400).json({ error: 'A valid gigId or amount is required.' });
+    const q = financeLedger.quoteOrder(gigPrice);
+    res.json({ ...q, config: financeLedger.getFeeConfig() });
+  } catch (err: any) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
+});
 
 // ==========================================
 // MONEY HELPERS (all balance changes go through the ledger engine)

@@ -1,0 +1,1283 @@
+diff --git a/server.ts b/server.ts
+index 5c31457..6914446 100644
+--- a/server.ts
++++ b/server.ts
+@@ -11,6 +11,7 @@ import bcrypt from 'bcryptjs';
+ import type { Request, Response, NextFunction } from 'express';
+ import { financeLedger, FinanceLedgerEngine } from './src/server/financeLedger.js';
+ import { DEFAULT_SITE_SETTINGS } from './src/server/siteSettings.js';
++import { calculateOrderFees } from './src/shared/fees.js';
+ import {
+   SEED_USERS,
+   SEED_GIGS,
+@@ -59,6 +60,10 @@ function areSimulatedDepositsAllowed(): boolean {
+ // Feed business rules from the site settings into the ledger engine
+ financeLedger.configure({
+   commissionPercent: DEFAULT_SITE_SETTINGS.commission.commissionPercent,
++  buyerFeePercent: DEFAULT_SITE_SETTINGS.commission.buyerProcessingFeePercent,
++  smallOrderFee: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeAmount,
++  smallOrderThreshold: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeThreshold,
++  refundClientFeesOnFullRefund: DEFAULT_SITE_SETTINGS.commission.refundClientFeesOnFullRefund,
+   minimumOrderAmount: DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount,
+   minimumWithdrawalAmount: DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount,
+   maximumWithdrawalAmount: DEFAULT_SITE_SETTINGS.wallets.maximumWithdrawalPerTransaction
+@@ -1361,7 +1366,9 @@ interface SiteFeeSettings {
+   currencySymbol: string;
+   freelancerCommissionRate: number;
+   buyerProcessingFeeRate: number;
+-  buyerProcessingFeeFixed: number;
++  smallOrderFee: number;
++  smallOrderFeeThreshold: number;
++  refundClientFeesOnFullRefund: boolean;
+   minOrderAmount: number;
+   featuredGigFee: number;
+   urgentProjectFee: number;
+@@ -1383,8 +1390,10 @@ let siteFeeSettings: SiteFeeSettings = {
+   currency: 'USD',
+   currencySymbol: '$',
+   freelancerCommissionRate: 20,
+-  buyerProcessingFeeRate: 3,
+-  buyerProcessingFeeFixed: 0,
++  buyerProcessingFeeRate: DEFAULT_SITE_SETTINGS.commission.buyerProcessingFeePercent, // 5.5% client service fee
++  smallOrderFee: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeAmount, // $3.50 flat
++  smallOrderFeeThreshold: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeThreshold, // on orders under $200
++  refundClientFeesOnFullRefund: DEFAULT_SITE_SETTINGS.commission.refundClientFeesOnFullRefund,
+   minOrderAmount: 10,
+   featuredGigFee: 10,
+   urgentProjectFee: 25,
+@@ -1411,85 +1420,134 @@ const handleGetSiteSettings = (req: Request, res: Response) => {
+ 
+ const handlePostSiteSettings = (req: Request, res: Response) => {
+   try {
+-    const body = req.body || {};
+-
+-    if (body.freelancerCommissionRate !== undefined) {
+-      const num = Number(body.freelancerCommissionRate);
+-      if (isNaN(num) || num < 0 || num > 100) {
+-        return res.status(400).json({ error: 'Commission rate must be between 0 and 100%' });
+-      }
+-      body.freelancerCommissionRate = num;
+-    }
+-    if (body.buyerProcessingFeeRate !== undefined) {
+-      const num = Number(body.buyerProcessingFeeRate);
+-      if (isNaN(num) || num < 0 || num > 100) {
+-        return res.status(400).json({ error: 'Buyer processing fee rate must be between 0 and 100%' });
+-      }
+-      body.buyerProcessingFeeRate = num;
+-    }
+-    if (body.minOrderAmount !== undefined) {
+-      const num = Number(body.minOrderAmount);
+-      if (isNaN(num) || num < 1) {
+-        return res.status(400).json({ error: 'Minimum order amount must be at least $1' });
+-      }
+-      body.minOrderAmount = num;
+-    }
+-    if (body.escrowHoldDays !== undefined) {
+-      const num = Number(body.escrowHoldDays);
+-      if (isNaN(num) || num < 0) {
+-        return res.status(400).json({ error: 'Escrow hold days must be a non-negative number' });
+-      }
+-      body.escrowHoldDays = num;
+-    }
+-    if (body.minPayoutThreshold !== undefined) {
+-      const num = Number(body.minPayoutThreshold);
+-      if (isNaN(num) || num < 1) {
+-        return res.status(400).json({ error: 'Minimum payout threshold must be at least $1' });
+-      }
+-      body.minPayoutThreshold = num;
+-    }
++    const raw = req.body || {};
++
++    // The admin UI uses a few different key names than the server state; accept both.
++    const aliases: Record<string, string> = {
++      buyerFeePercent: 'buyerProcessingFeeRate',
++      minimumOrder: 'minOrderAmount',
++      minimumWithdrawal: 'minPayoutThreshold',
++      autoCompleteDays: 'autoCompleteDeliveredDays',
++      featureGigFee: 'featuredGigFee',
++      instantPayoutSurcharge: 'instantPayoutFeeRate',
++      smallOrderFeeAmount: 'smallOrderFee'
++    };
++    const body: Record<string, any> = {};
++    for (const [k, v] of Object.entries(raw)) body[aliases[k] || k] = v;
++
++    const numberIn = (key: string, min: number, max: number, label: string) => {
++      if (body[key] === undefined) return null;
++      const num = Number(body[key]);
++      if (!Number.isFinite(num) || num < min || num > max) return `${label} must be between ${min} and ${max}.`;
++      body[key] = num;
++      return null;
++    };
++    const problem =
++      numberIn('freelancerCommissionRate', 0, 100, 'Commission rate (%)') ||
++      numberIn('buyerProcessingFeeRate', 0, 100, 'Client service fee (%)') ||
++      numberIn('smallOrderFee', 0, 1000, 'Small-order fee ($)') ||
++      numberIn('smallOrderFeeThreshold', 0, 1000000, 'Small-order threshold ($)') ||
++      numberIn('minOrderAmount', 1, 1000000, 'Minimum order amount ($)') ||
++      numberIn('escrowHoldDays', 0, 365, 'Escrow hold days') ||
++      numberIn('minPayoutThreshold', 1, 1000000, 'Minimum payout threshold ($)');
++    if (problem) return res.status(400).json({ error: problem });
++
++    // Only known settings are accepted (no arbitrary keys spread into server state).
++    const allowed = Object.keys(siteFeeSettings);
++    const updates: Record<string, any> = {};
++    for (const k of allowed) if (body[k] !== undefined) updates[k] = body[k];
++
++    const next = { ...siteFeeSettings, ...updates } as SiteFeeSettings;
++
++    // Apply to the ledger first: it validates the fee rules and throws before anything is saved.
++    financeLedger.configure({
++      commissionPercent: next.freelancerCommissionRate,
++      buyerFeePercent: next.buyerProcessingFeeRate,
++      smallOrderFee: next.smallOrderFee,
++      smallOrderThreshold: next.smallOrderFeeThreshold,
++      refundClientFeesOnFullRefund: next.refundClientFeesOnFullRefund,
++      minimumOrderAmount: next.minOrderAmount || 5,
++      minimumWithdrawalAmount: next.minPayoutThreshold || 5
++    });
+ 
+     siteFeeSettings = {
+-      ...siteFeeSettings,
+-      ...body,
++      ...next,
+       updatedAt: new Date().toISOString().split('T')[0],
+-      updatedBy: body.updatedBy || 'Super Admin'
++      updatedBy: (req as any).authenticatedUser?.name || 'Super Admin'
+     };
+ 
+-    // Keep global business configurations and finance ledger in sync
+-    if (typeof siteFeeSettings.freelancerCommissionRate === 'number') {
+-      DEFAULT_SITE_SETTINGS.commission.commissionPercent = siteFeeSettings.freelancerCommissionRate;
+-      DEFAULT_SITE_SETTINGS.commission.escrowProtectionDays = siteFeeSettings.escrowHoldDays || DEFAULT_SITE_SETTINGS.commission.escrowProtectionDays;
+-      DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount = siteFeeSettings.minOrderAmount || DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount;
+-      DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount = siteFeeSettings.minPayoutThreshold || DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount;
+-
+-      financeLedger.configure({
+-        commissionPercent: siteFeeSettings.freelancerCommissionRate,
+-        minimumOrderAmount: siteFeeSettings.minOrderAmount || 5,
+-        minimumWithdrawalAmount: siteFeeSettings.minPayoutThreshold || 5
+-      });
+-    }
++    // Keep the shared business configuration in sync with what the ledger enforces
++    DEFAULT_SITE_SETTINGS.commission.commissionPercent = siteFeeSettings.freelancerCommissionRate;
++    DEFAULT_SITE_SETTINGS.commission.buyerProcessingFeePercent = siteFeeSettings.buyerProcessingFeeRate;
++    DEFAULT_SITE_SETTINGS.commission.smallOrderFeeAmount = siteFeeSettings.smallOrderFee;
++    DEFAULT_SITE_SETTINGS.commission.smallOrderFeeThreshold = siteFeeSettings.smallOrderFeeThreshold;
++    DEFAULT_SITE_SETTINGS.commission.refundClientFeesOnFullRefund = siteFeeSettings.refundClientFeesOnFullRefund;
++    DEFAULT_SITE_SETTINGS.commission.escrowProtectionDays = siteFeeSettings.escrowHoldDays || DEFAULT_SITE_SETTINGS.commission.escrowProtectionDays;
++    DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount = siteFeeSettings.minOrderAmount || DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount;
++    DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount = siteFeeSettings.minPayoutThreshold || DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount;
+ 
+     auditLogs.unshift({
+       id: 'log_' + Date.now(),
+-      actor: body.updatedBy || 'Super Admin',
++      actor: siteFeeSettings.updatedBy || 'Super Admin',
+       role: 'super_admin',
+       action: 'SITE_FEE_SETTINGS_UPDATED',
+       target: 'Platform Settings & Fee Structure',
+-      details: `Updated settings: Commission=${siteFeeSettings.freelancerCommissionRate}%, EscrowHold=${siteFeeSettings.escrowHoldDays}d, BuyerFee=${siteFeeSettings.buyerProcessingFeeRate}%`,
++      details: `Updated settings: Commission=${siteFeeSettings.freelancerCommissionRate}%, ClientServiceFee=${siteFeeSettings.buyerProcessingFeeRate}%, SmallOrderFee=$${siteFeeSettings.smallOrderFee} under $${siteFeeSettings.smallOrderFeeThreshold}, EscrowHold=${siteFeeSettings.escrowHoldDays}d`,
+       timestamp: new Date().toLocaleString()
+     });
+ 
+     res.json({ success: true, settings: siteFeeSettings, ...siteFeeSettings });
+   } catch (err: any) {
+-    res.status(500).json({ error: err?.message || 'Failed to update site settings' });
++    res.status(400).json({ error: err?.message || 'Failed to update site settings' });
+   }
+ };
+ 
+ app.get('/api/admin/settings', handleGetSiteSettings);
+ app.get('/api/admin/site-settings', handleGetSiteSettings);
+-app.post('/api/admin/settings', handlePostSiteSettings);
+-app.post('/api/admin/site-settings', handlePostSiteSettings);
++// Fee settings control real money movement: only administrators may change them.
++app.post('/api/admin/settings', requireAdmin, handlePostSiteSettings);
++app.patch('/api/admin/settings', requireAdmin, handlePostSiteSettings);
++app.post('/api/admin/site-settings', requireAdmin, handlePostSiteSettings);
++app.patch('/api/admin/site-settings', requireAdmin, handlePostSiteSettings);
++
++// ==========================================
++// ORDER PRICING & FEE QUOTES (server is the only authority on what a client is charged)
++// ==========================================
++// Resolves the gig price (gig + selected extras) from server-side data. Never trusts a price sent by the browser.
++function resolveGigOrderPrice(gigId: string, extraIds: unknown): { gig: Gig; gigPrice: number; extrasTitles: string[] } {
++  const gig = gigs.find(g => g.id === gigId);
++  if (!gig) throw Object.assign(new Error('Gig not found.'), { status: 404 });
++  if (gig.status && gig.status !== 'published') throw Object.assign(new Error('This gig is not available for ordering.'), { status: 400 });
++  const ids = Array.isArray(extraIds) ? Array.from(new Set(extraIds.map(String))) : [];
++  let cents = Math.round(Number(gig.price) * 100);
++  if (!Number.isFinite(cents) || cents <= 0) throw Object.assign(new Error('This gig has no valid price.'), { status: 400 });
++  const extrasTitles: string[] = [];
++  for (const id of ids) {
++    const extra = (gig.extras || []).find(e => e.id === id);
++    if (!extra) throw Object.assign(new Error(`Unknown add-on "${id}" for this gig.`), { status: 400 });
++    cents += Math.round(Number(extra.price) * 100);
++    extrasTitles.push(extra.title);
++  }
++  return { gig, gigPrice: cents / 100, extrasTitles };
++}
++
++// Public fee quote for the checkout screen: same math the ledger will apply when the order is funded.
++app.get('/api/fees/quote', (req, res) => {
++  try {
++    let gigPrice: number;
++    if (typeof req.query.gigId === 'string' && req.query.gigId) {
++      const extraIds = typeof req.query.extraIds === 'string' && req.query.extraIds ? req.query.extraIds.split(',') : [];
++      gigPrice = resolveGigOrderPrice(req.query.gigId, extraIds).gigPrice;
++    } else {
++      gigPrice = Number(req.query.amount);
++    }
++    if (!Number.isFinite(gigPrice) || gigPrice < 0) return res.status(400).json({ error: 'A valid gigId or amount is required.' });
++    const q = financeLedger.quoteOrder(gigPrice);
++    res.json({ ...q, config: financeLedger.getFeeConfig() });
++  } catch (err: any) {
++    res.status(err.status || 400).json({ error: err.message });
++  }
++});
+ 
+ // ==========================================
+ // MONEY HELPERS (all balance changes go through the ledger engine)
+@@ -2454,7 +2512,7 @@ app.post('/api/payments/escrow/refund', requireAuth, (req, res) => {
+       timestamp: new Date().toLocaleString()
+     });
+ 
+-    res.json({ success: true, order, refunded: result.refunded });
++    res.json({ success: true, order, refunded: result.refunded, feesRefunded: result.feesRefunded });
+   } catch (err: any) {
+     res.status(400).json({ error: err.message });
+   }
+@@ -2599,10 +2657,20 @@ app.get('/api/payments/invoices/:userId', requireAuth, (req, res) => {
+         items: [
+           { description: o.title, quantity: 1, unitPrice: o.amount, amount: o.amount }
+         ],
+-        subtotal: o.amount,
+-        platformFee: Number((o.amount * 0.10).toFixed(2)),
+-        tax: 0,
+-        total: o.amount,
++        ...(() => {
++          // Fees locked in when the escrow was funded (fall back to current rules for unfunded orders)
++          const esc = financeLedger.getEscrow(o.id);
++          const cfg = { ...financeLedger.getFeeConfig(), ...(esc ? { commissionPercent: esc.commissionPercent } : {}) };
++          const f = calculateOrderFees(o.amount, cfg);
++          return {
++            subtotal: f.gigPrice,
++            serviceFee: esc ? esc.serviceFee : f.serviceFee,
++            smallOrderFee: esc ? esc.smallOrderFee : f.smallOrderFee,
++            platformFee: f.platformCommission,
++            tax: 0,
++            total: f.gigPrice + (esc ? esc.serviceFee + esc.smallOrderFee : f.serviceFee + f.smallOrderFee)
++          };
++        })(),
+         notes: `WorkPerHour 14-Day Escrow Protection Order #${o.id}. 100% Protected.`,
+         relatedOrderId: o.id
+       };
+@@ -2625,7 +2693,7 @@ app.post('/api/payments/invoices', requireAuth, (req, res) => {
+     }
+     const cleanItems = (items && items.length > 0) ? items : [{ description: title, quantity: 1, unitPrice: 100, amount: 100 }];
+     const subtotal = cleanItems.reduce((s: number, it: any) => s + (Number(it.amount) || (Number(it.quantity || 1) * Number(it.unitPrice || 0))), 0);
+-    const platformFee = Number((subtotal * 0.075).toFixed(2));
++    const platformFee = financeLedger.quoteOrder(subtotal).platformCommission; // same commission rule as orders
+     const total = subtotal;
+ 
+     const newInvoice: CustomInvoice = {
+@@ -2863,9 +2931,18 @@ app.get('/api/admin/finance/escrow', (req, res) => {
+         buyerEmail: buyer?.email || '',
+         sellerName: seller?.name || 'Freelancer #' + o.sellerId,
+         sellerEmail: seller?.email || '',
+-        platformFeeRate: `${financeLedger.getPlatformCommissionRate()}%`,
+-        platformFeeAmount: FinanceLedgerEngine.round(o.amount * financeLedger.getPlatformCommissionRate() / 100),
+-        freelancerNetAmount: FinanceLedgerEngine.round(o.amount - o.amount * financeLedger.getPlatformCommissionRate() / 100),
++        ...(() => {
++          const esc = financeLedger.getEscrow(o.id);
++          const f = calculateOrderFees(o.amount, { ...financeLedger.getFeeConfig(), ...(esc ? { commissionPercent: esc.commissionPercent } : {}) });
++          return {
++            platformFeeRate: `${esc ? esc.commissionPercent : financeLedger.getPlatformCommissionRate()}%`,
++            platformFeeAmount: f.platformCommission,
++            freelancerNetAmount: f.freelancerNet,
++            clientServiceFee: esc ? esc.serviceFee : f.serviceFee,
++            smallOrderFee: esc ? esc.smallOrderFee : f.smallOrderFee,
++            clientTotalCharged: esc ? FinanceLedgerEngine.round(esc.amount + esc.serviceFee + esc.smallOrderFee) : f.clientTotal,
++          };
++        })(),
+         ledgerEscrowStatus: financeLedger.getEscrow(o.id)?.status || 'not_funded',
+         ledgerEscrowHeld: financeLedger.getEscrow(o.id)?.remaining ?? 0,
+         escrowState,
+@@ -3869,8 +3946,17 @@ app.post('/api/orders', requireAuth, rateLimit(30, 60_000), (req, res) => {
+ 
+     const id = 'ord_' + randomUUID().slice(0, 12);
+     const today = new Date().toISOString().split('T')[0];
+-    const rawAmount = Number(req.body?.amount);
+-    const isInquiry = rawAmount === 0 && /^inquiry:/i.test(title);
++    const bodyAmount = Number(req.body?.amount);
++    const isInquiry = bodyAmount === 0 && /^inquiry:/i.test(title);
++
++    // Gig orders are priced by the server from the gig (+ selected add-ons); the amount sent by the browser is ignored.
++    // Orders without a gigId (custom/project offers) still use the supplied amount, but the same fees are added on top.
++    let rawAmount = bodyAmount;
++    if (!isInquiry && req.body?.gigId) {
++      const priced = resolveGigOrderPrice(String(req.body.gigId), req.body?.extraIds);
++      if (priced.gig.freelancerId !== sellerId) return res.status(400).json({ error: 'Seller does not match this gig.' });
++      rawAmount = priced.gigPrice;
++    }
+ 
+     let newOrd: Order;
+     if (isInquiry) {
+@@ -3890,9 +3976,9 @@ app.post('/api/orders', requireAuth, rateLimit(30, 60_000), (req, res) => {
+     }
+     const enriched = enrichOrderWithServiceInfo(newOrd);
+     orders.unshift(enriched);
+-    res.status(201).json(enriched);
++    res.status(201).json({ ...enriched, ...(isInquiry ? {} : { feeBreakdown: financeLedger.quoteOrder(rawAmount) }) });
+   } catch (err: any) {
+-    res.status(400).json({ error: err.message });
++    res.status(err.status || 400).json({ error: err.message });
+   }
+ });
+ 
+diff --git a/src/App.tsx b/src/App.tsx
+index 495dec1..ee07c0f 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -1965,7 +1965,7 @@ export default function App() {
+     }
+   };
+ 
+-  const handleCreateOrder = async (title: string, amount: number, sellerId: string) => {
++  const handleCreateOrder = async (title: string, amount: number, sellerId: string, gigId?: string, extraIds?: string[]) => {
+     if (!currentUser) {
+       setIsLoginModalOpen(true);
+       return;
+@@ -1982,7 +1982,9 @@ export default function App() {
+           title,
+           buyerId: impersonatedUser ? impersonatedUser.id : currentUser.id,
+           sellerId,
+-          amount,
++          amount, // ignored by the server for gig orders: it prices the order from gigId + extraIds
++          gigId,
++          extraIds,
+           dueDate: new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0]
+         })
+       });
+diff --git a/src/components/SiteFeeSettingsModule.tsx b/src/components/SiteFeeSettingsModule.tsx
+index 7b705a9..52edb09 100644
+--- a/src/components/SiteFeeSettingsModule.tsx
++++ b/src/components/SiteFeeSettingsModule.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState } from 'react';
++import React, { useState, useEffect } from 'react';
+ import { 
+   Settings, DollarSign, Percent, ShieldCheck, Save, CheckCircle2, 
+   HelpCircle, AlertCircle, RefreshCw, Layers, Sliders, Shield, Lock, Globe
+@@ -15,7 +15,9 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+   onSettingsSaved
+ }) => {
+   const [takeRate, setTakeRate] = useState<number>(20);
+-  const [buyerFee, setBuyerFee] = useState<number>(3);
++  const [buyerFee, setBuyerFee] = useState<number>(5.5);
++  const [smallOrderFee, setSmallOrderFee] = useState<number>(3.5);
++  const [smallOrderThreshold, setSmallOrderThreshold] = useState<number>(200);
+   const [escrowHoldDays, setEscrowHoldDays] = useState<number>(14);
+   const [autoCompleteDays, setAutoCompleteDays] = useState<number>(3);
+   const [minOrder, setMinOrder] = useState<number>(10);
+@@ -34,6 +36,29 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+   // Live Simulator State
+   const [simOrderAmount, setSimOrderAmount] = useState<number>(500);
+ 
++  const authHeaders = (): Record<string, string> => {
++    const token = localStorage.getItem('workperhour_token') || localStorage.getItem('token');
++    return { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) };
++  };
++
++  // Load the live fee settings so saving never overwrites them with this form's local defaults
++  useEffect(() => {
++    fetch('/api/admin/settings', { headers: authHeaders() })
++      .then(r => (r.ok ? r.json() : null))
++      .then(d => {
++        const st = d?.settings;
++        if (!st) return;
++        if (typeof st.freelancerCommissionRate === 'number') setTakeRate(st.freelancerCommissionRate);
++        if (typeof st.buyerProcessingFeeRate === 'number') setBuyerFee(st.buyerProcessingFeeRate);
++        if (typeof st.smallOrderFee === 'number') setSmallOrderFee(st.smallOrderFee);
++        if (typeof st.smallOrderFeeThreshold === 'number') setSmallOrderThreshold(st.smallOrderFeeThreshold);
++        if (typeof st.minOrderAmount === 'number') setMinOrder(st.minOrderAmount);
++        if (typeof st.escrowHoldDays === 'number') setEscrowHoldDays(st.escrowHoldDays);
++        if (typeof st.minPayoutThreshold === 'number') setMinPayout(st.minPayoutThreshold);
++      })
++      .catch(() => { /* keep local defaults if the server is unreachable */ });
++  }, []);
++
+   const [isSaving, setIsSaving] = useState(false);
+   const [savedSuccess, setSavedSuccess] = useState(false);
+ 
+@@ -43,12 +68,14 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+     localStorage.setItem('workperhour_platform_fee', takeRate.toString());
+ 
+     try {
+-      await fetch('/api/admin/settings', {
++      const saveRes = await fetch('/api/admin/settings', {
+         method: 'PATCH',
+-        headers: { 'Content-Type': 'application/json' },
++        headers: authHeaders(),
+         body: JSON.stringify({
+           freelancerCommissionRate: takeRate,
+           buyerFeePercent: buyerFee,
++          smallOrderFee,
++          smallOrderFeeThreshold,
+           escrowHoldDays,
+           autoCompleteDays,
+           minimumOrder: minOrder,
+@@ -65,21 +92,27 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+       });
+ 
+       setIsSaving(false);
++      if (!saveRes.ok) {
++        // Do not claim success when the server rejected the fee settings
++        const errBody = await saveRes.json().catch(() => ({} as any));
++        alert(errBody?.error || 'Could not save fee settings.');
++        return;
++      }
+       setSavedSuccess(true);
+       if (onSettingsSaved) onSettingsSaved({ takeRate, buyerFee, escrowHoldDays });
+       setTimeout(() => setSavedSuccess(false), 3500);
+     } catch (err) {
+       console.error(err);
+       setIsSaving(false);
+-      setSavedSuccess(true);
+-      if (onSettingsSaved) onSettingsSaved();
+-      setTimeout(() => setSavedSuccess(false), 3500);
++      alert('Could not reach the server; fee settings were not saved.');
+     }
+   };
+ 
+   const handleResetDefaults = () => {
+     setTakeRate(20);
+-    setBuyerFee(3);
++    setBuyerFee(5.5);
++    setSmallOrderFee(3.5);
++    setSmallOrderThreshold(200);
+     setEscrowHoldDays(14);
+     setAutoCompleteDays(3);
+     setMinOrder(10);
+@@ -97,10 +130,11 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+   // Simulator calculations
+   const orderGrossValue = simOrderAmount;
+   const buyerServiceSurcharge = Number((orderGrossValue * (buyerFee / 100)).toFixed(2));
+-  const buyerPaysAtCheckout = orderGrossValue + buyerServiceSurcharge;
++  const smallOrderSurcharge = orderGrossValue > 0 && orderGrossValue < smallOrderThreshold ? smallOrderFee : 0;
++  const buyerPaysAtCheckout = orderGrossValue + buyerServiceSurcharge + smallOrderSurcharge;
+   const platformTakeRateDeduction = Number((orderGrossValue * (takeRate / 100)).toFixed(2));
+   const freelancerNetPayout = orderGrossValue - platformTakeRateDeduction;
+-  const totalPlatformMargin = buyerServiceSurcharge + platformTakeRateDeduction;
++  const totalPlatformMargin = buyerServiceSurcharge + smallOrderSurcharge + platformTakeRateDeduction;
+   const netMarginPercent = ((totalPlatformMargin / buyerPaysAtCheckout) * 100).toFixed(1);
+ 
+   return (
+@@ -219,22 +253,22 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+               {/* Buyer Checkout Processing Fee Surcharge */}
+               <div className="space-y-2 pt-4 border-t border-slate-100">
+                 <div className="flex items-center justify-between font-bold">
+-                  <span className="text-slate-800">Buyer Checkout Processing Fee (%)</span>
++                  <span className="text-slate-800">Client Service Fee (%)</span>
+                   <span className="text-blue-600 font-mono text-sm">{buyerFee}%</span>
+                 </div>
+-                <p className="text-slate-500 text-[11px]">Added to invoice total during checkout to cover gateway and fraud protection.</p>
++                <p className="text-slate-500 text-[11px]">Charged to the client on top of the gig price at checkout (default 5.5%).</p>
+                 <div className="flex items-center gap-3">
+                   <input 
+                     type="range"
+                     min="0"
+-                    max="10"
++                    max="15"
+                     step="0.5"
+                     value={buyerFee}
+                     onChange={(e) => setBuyerFee(parseFloat(e.target.value))}
+                     className="flex-1 accent-blue-600 cursor-pointer"
+                   />
+                   <div className="flex gap-1.5">
+-                    {[0, 1, 2, 3].map(val => (
++                    {[0, 3, 5.5, 10].map(val => (
+                       <button 
+                         key={val}
+                         type="button"
+@@ -248,6 +282,28 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+                 </div>
+               </div>
+ 
++              {/* Small-order fee */}
++              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-100">
++                <div>
++                  <label className="block text-slate-700 font-bold mb-1">Small-Order Fee ($)</label>
++                  <input
++                    type="number" min="0" step="0.01"
++                    value={smallOrderFee}
++                    onChange={(e) => setSmallOrderFee(parseFloat(e.target.value) || 0)}
++                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800"
++                  />
++                </div>
++                <div>
++                  <label className="block text-slate-700 font-bold mb-1">Applies to orders under ($)</label>
++                  <input
++                    type="number" min="0" step="1"
++                    value={smallOrderThreshold}
++                    onChange={(e) => setSmallOrderThreshold(parseFloat(e.target.value) || 0)}
++                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-800"
++                  />
++                </div>
++              </div>
++
+               {/* Additional Fees Grid */}
+               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-slate-100">
+                 <div>
+@@ -498,6 +554,12 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
+                   <span>Buyer Service Surcharge (+{buyerFee}%):</span>
+                   <span className="font-bold">+${buyerServiceSurcharge.toFixed(2)}</span>
+                 </div>
++                {smallOrderSurcharge > 0 && (
++                  <div className="flex justify-between text-blue-600">
++                    <span>Small-Order Fee (under ${smallOrderThreshold}):</span>
++                    <span className="font-bold">+${smallOrderSurcharge.toFixed(2)}</span>
++                  </div>
++                )}
+                 <div className="flex justify-between text-slate-900 font-bold pt-1 border-t border-slate-100">
+                   <span>Buyer Pays at Checkout:</span>
+                   <span>${buyerPaysAtCheckout.toFixed(2)}</span>
+diff --git a/src/components/gigs/GigDetailView.tsx b/src/components/gigs/GigDetailView.tsx
+index ae71aef..fcaae9c 100644
+--- a/src/components/gigs/GigDetailView.tsx
++++ b/src/components/gigs/GigDetailView.tsx
+@@ -1,4 +1,4 @@
+-import React, { useState } from 'react';
++import React, { useState, useEffect } from 'react';
+ import { Star, Sparkles, Clock, RefreshCw, ShieldCheck, Lock, MessageSquare } from 'lucide-react';
+ import { Gig, Review } from '../../types';
+ import { RelatedGigsSection } from './RelatedGigsSection';
+@@ -26,7 +26,7 @@ interface GigDetailViewProps {
+   reviews: Review[];
+   navigate: (path: string, e?: React.MouseEvent) => void;
+   handleContactSeller: (freelancerId: string, freelancerName: string, gigTitle: string) => void;
+-  handleCreateOrder: (orderTitle: string, priceUSD: number, sellerId: string) => void;
++  handleCreateOrder: (orderTitle: string, priceUSD: number, sellerId: string, gigId?: string, extraIds?: string[]) => void;
+   slugify?: (text: string) => string;
+ }
+ 
+@@ -42,6 +42,19 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
+   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
+   const [isPuppetVideoPlaying, setIsPuppetVideoPlaying] = useState<boolean>(false);
+ 
++  // Fee quote from the server: the same math the ledger applies when the order is funded.
++  const [quote, setQuote] = useState<{ gigPrice: number; serviceFee: number; smallOrderFee: number; clientTotal: number; config?: { buyerFeePercent: number; smallOrderThreshold: number } } | null>(null);
++  useEffect(() => {
++    let cancelled = false;
++    const qs = new URLSearchParams({ gigId: currentGig.id });
++    if (selectedExtras.length > 0) qs.set('extraIds', selectedExtras.join(','));
++    fetch(`/api/fees/quote?${qs.toString()}`)
++      .then(r => (r.ok ? r.json() : null))
++      .then(q => { if (!cancelled) setQuote(q); })
++      .catch(() => { if (!cancelled) setQuote(null); });
++    return () => { cancelled = true; };
++  }, [currentGig.id, selectedExtras]);
++
+   const safeSlugify = (str: string) => {
+     if (slugify) return slugify(str);
+     return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+@@ -248,6 +261,9 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
+               const selectedExtrasObjects = extrasList.filter(e => selectedExtras.includes(e.id));
+               const extrasTotalUSD = selectedExtrasObjects.reduce((sum, e) => sum + e.price, 0);
+               const totalUSD = currentGig.price + extrasTotalUSD;
++              // Only trust the quote if it was computed for exactly this selection
++              const q = quote && Math.abs(quote.gigPrice - totalUSD) < 0.005 ? quote : null;
++              const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+ 
+               return (
+                 <>
+@@ -309,15 +325,26 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
+                     </div>
+                   )}
+ 
++                  {/* Price breakdown (service fee + small-order fee come from the server quote) */}
++                  {q && (
++                    <div className="pt-4 border-t border-slate-100 space-y-1.5 text-xs text-fiverr-muted">
++                      <div className="flex justify-between"><span>Order{selectedExtras.length > 0 ? ' + extras' : ''}</span><span>{money(q.gigPrice)}</span></div>
++                      <div className="flex justify-between"><span>Service fee ({q.config?.buyerFeePercent ?? 5.5}%)</span><span>{money(q.serviceFee)}</span></div>
++                      {q.smallOrderFee > 0 && (
++                        <div className="flex justify-between"><span>Small order fee (under ${q.config?.smallOrderThreshold ?? 200})</span><span>{money(q.smallOrderFee)}</span></div>
++                      )}
++                    </div>
++                  )}
++
+                   {/* Total Summary */}
+                   <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                     <div>
+-                      <span className="text-xs text-fiverr-muted block font-normal">Total Escrow Amount</span>
++                      <span className="text-xs text-fiverr-muted block font-normal">{q ? 'Total you pay' : 'Order amount (fees added at checkout)'}</span>
+                       {selectedExtras.length > 0 && (
+                         <span className="text-xs text-emerald-600 font-bold block">Includes {selectedExtras.length} selected extra(s)</span>
+                       )}
+                     </div>
+-                    <span className="text-[19px] font-bold text-fiverr-dark">${totalUSD.toLocaleString()}</span>
++                    <span className="text-[19px] font-bold text-fiverr-dark">{q ? money(q.clientTotal) : `$${totalUSD.toLocaleString()}`}</span>
+                   </div>
+ 
+                   <div className="bg-emerald-50 border border-emerald-200/60 rounded-2xl p-3 flex items-start gap-2.5 text-[11px] text-emerald-900">
+@@ -329,12 +356,14 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
+                     onClick={() => handleCreateOrder(
+                       `${currentGig.title}${selectedExtrasObjects.length > 0 ? ` (with ${selectedExtrasObjects.length} extra add-ons)` : ''}`, 
+                       totalUSD, 
+-                      currentGig.freelancerId
++                      currentGig.freelancerId,
++                      currentGig.id,
++                      selectedExtras
+                     )}
+                     className="w-full py-4 bg-emerald-500 text-slate-950 font-bold rounded-2xl hover:bg-emerald-400 transition-colors shadow-md text-xs flex items-center justify-center gap-2 cursor-pointer"
+                   >
+                     <Lock className="w-4 h-4" />
+-                    <span>Fund ${totalUSD.toLocaleString()} in Escrow & Order Now</span>
++                    <span>Fund {q ? money(q.clientTotal) : `$${totalUSD.toLocaleString()}`} in Escrow & Order Now</span>
+                   </button>
+                 </>
+               );
+diff --git a/src/server/financeLedger.ts b/src/server/financeLedger.ts
+index b38353d..61a6c55 100644
+--- a/src/server/financeLedger.ts
++++ b/src/server/financeLedger.ts
+@@ -1,4 +1,5 @@
+ import { randomUUID } from 'node:crypto';
++import { DEFAULT_FEE_CONFIG, calculateOrderFees, percentOfCents, validateFeeConfig, type FeeConfig } from '../shared/fees.js';
+ 
+ // Authoritative Double-Entry Ledger & Financial Engine for WorkPerHour
+ 
+@@ -20,7 +21,9 @@ export const CHART_OF_ACCOUNTS: ChartOfAccount[] = [
+   { code: '2040', name: 'Pending Payout Liabilities', type: 'liability', normalBalance: 'credit', description: 'Requested withdrawals queued for bank or UPI transfer' },
+   { code: '3010', name: 'Opening Balance Equity', type: 'equity', normalBalance: 'credit', description: 'Opening balances carried over when the ledger was introduced' },
+   { code: '2050', name: 'Pending Refund Liabilities', type: 'liability', normalBalance: 'credit', description: 'Approved refund amounts queued for payment processor reversal' },
+-  { code: '4010', name: 'Marketplace Platform Commission Fee', type: 'revenue', normalBalance: 'credit', description: '10% marketplace commission earned on completed orders' },
++  { code: '4010', name: 'Marketplace Platform Commission Fee', type: 'revenue', normalBalance: 'credit', description: 'Platform commission (default 20%) taken from the gig price when escrow is released' },
++  { code: '4020', name: 'Client Service Fee Revenue', type: 'revenue', normalBalance: 'credit', description: 'Client service fee (default 5.5% of gig price) collected at checkout' },
++  { code: '4030', name: 'Small-Order Fee Revenue', type: 'revenue', normalBalance: 'credit', description: 'Flat small-order fee (default $3.50 under $200) collected at checkout' },
+   { code: '5010', name: 'Payment Processing Gateway Fees', type: 'expense', normalBalance: 'debit', description: 'Merchant fees charged by Stripe, Razorpay, or banks' },
+   { code: '5020', name: 'Administrative & Goodwill Adjustments', type: 'expense', normalBalance: 'debit', description: 'Compensatory credits and goodwill dispute write-offs' },
+ ];
+@@ -50,6 +53,7 @@ export interface LedgerJournal {
+     | 'ORDER_ESCROW_FUNDED'
+     | 'ESCROW_RELEASED_TO_FREELANCER'
+     | 'ESCROW_REFUNDED_TO_BUYER'
++    | 'ESCROW_REFUNDED_WITH_FEES'
+     | 'PAYOUT_REQUESTED'
+     | 'PAYOUT_SETTLED'
+     | 'PAYOUT_CANCELLED'
+@@ -164,6 +168,10 @@ export interface EscrowRecord {
+   refundSeq: number;
+   status: 'held' | 'released' | 'refunded' | 'split';
+   fundedAt: string;
++  commissionPercent: number; // commission rate locked in when the escrow was funded
++  serviceFee: number;        // client service fee collected at funding (not held in escrow)
++  smallOrderFee: number;     // small-order fee collected at funding (not held in escrow)
++  feesRefunded: boolean;     // true once the client fees were returned on a full refund
+ }
+ 
+ export interface PayoutRecord {
+@@ -196,7 +204,11 @@ export class FinanceLedgerEngine {
+   private escrows: Map<string, EscrowRecord> = new Map();
+   private payouts: Map<string, PayoutRecord> = new Map();
+   private opResults: Map<string, any> = new Map();
+-  private platformCommissionRate: number = 10;
++  private platformCommissionRate: number = DEFAULT_FEE_CONFIG.commissionPercent;
++  private buyerFeePercent: number = DEFAULT_FEE_CONFIG.buyerFeePercent;
++  private smallOrderFee: number = DEFAULT_FEE_CONFIG.smallOrderFee;
++  private smallOrderThreshold: number = DEFAULT_FEE_CONFIG.smallOrderThreshold;
++  private refundClientFeesOnFullRefund: boolean = true;
+   private minimumOrderAmount: number = 10;
+   private minimumWithdrawalAmount: number = 50;
+   private maximumWithdrawalAmount: number = 5000;
+@@ -206,13 +218,39 @@ export class FinanceLedgerEngine {
+   }
+ 
+   // ----- configuration -----------------------------------------------------
+-  public configure(cfg: { commissionPercent?: number; minimumOrderAmount?: number; minimumWithdrawalAmount?: number; maximumWithdrawalAmount?: number }) {
++  public configure(cfg: { commissionPercent?: number; buyerFeePercent?: number; smallOrderFee?: number; smallOrderThreshold?: number; refundClientFeesOnFullRefund?: boolean; minimumOrderAmount?: number; minimumWithdrawalAmount?: number; maximumWithdrawalAmount?: number }) {
+     if (cfg.commissionPercent !== undefined) this.setPlatformCommissionRate(cfg.commissionPercent);
++    const next: FeeConfig = {
++      commissionPercent: this.platformCommissionRate,
++      buyerFeePercent: cfg.buyerFeePercent ?? this.buyerFeePercent,
++      smallOrderFee: cfg.smallOrderFee ?? this.smallOrderFee,
++      smallOrderThreshold: cfg.smallOrderThreshold ?? this.smallOrderThreshold
++    };
++    validateFeeConfig(next); // throws before anything is applied
++    this.buyerFeePercent = next.buyerFeePercent;
++    this.smallOrderFee = next.smallOrderFee;
++    this.smallOrderThreshold = next.smallOrderThreshold;
++    if (typeof cfg.refundClientFeesOnFullRefund === 'boolean') this.refundClientFeesOnFullRefund = cfg.refundClientFeesOnFullRefund;
+     if (typeof cfg.minimumOrderAmount === 'number' && cfg.minimumOrderAmount >= 0) this.minimumOrderAmount = cfg.minimumOrderAmount;
+     if (typeof cfg.minimumWithdrawalAmount === 'number' && cfg.minimumWithdrawalAmount >= 0) this.minimumWithdrawalAmount = cfg.minimumWithdrawalAmount;
+     if (typeof cfg.maximumWithdrawalAmount === 'number' && cfg.maximumWithdrawalAmount > 0) this.maximumWithdrawalAmount = cfg.maximumWithdrawalAmount;
+   }
+ 
++  /** The fee rules the ledger is currently enforcing. */
++  public getFeeConfig(): FeeConfig {
++    return {
++      commissionPercent: this.platformCommissionRate,
++      buyerFeePercent: this.buyerFeePercent,
++      smallOrderFee: this.smallOrderFee,
++      smallOrderThreshold: this.smallOrderThreshold
++    };
++  }
++
++  /** What a client would be charged / a freelancer would receive for a given gig price, under current rules. */
++  public quoteOrder(gigPrice: number) {
++    return calculateOrderFees(gigPrice, this.getFeeConfig());
++  }
++
+   public setPlatformCommissionRate(rate: number) {
+     if (typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 100) {
+       this.platformCommissionRate = rate;
+@@ -388,6 +426,7 @@ export class FinanceLedgerEngine {
+       ORDER_ESCROW_FUNDED: 'escrow_fund',
+       ESCROW_RELEASED_TO_FREELANCER: 'escrow_release',
+       ESCROW_REFUNDED_TO_BUYER: 'refund',
++      ESCROW_REFUNDED_WITH_FEES: 'refund',
+       PAYOUT_REQUESTED: 'payout_requested',
+       PAYOUT_SETTLED: 'payout_processed',
+       PAYOUT_CANCELLED: 'payout_cancelled',
+@@ -608,8 +647,22 @@ export class FinanceLedgerEngine {
+     if (buyer.userRole === 'admin' || seller.userRole === 'admin') throw new Error('Admin wallets cannot take part in orders.');
+     if (buyer.status === 'frozen') throw new Error('Buyer wallet is frozen.');
+     if (seller.status === 'frozen') throw new Error('Seller wallet is frozen.');
+-    if (buyer.availableBalance < amount) {
+-      throw new Error(`Insufficient wallet balance. Available $${buyer.availableBalance.toFixed(2)}, required $${amount.toFixed(2)}. Please add funds.`);
++    // `amount` is the gig price. The client pays gig price + service fee + small-order fee;
++    // only the gig price is held in escrow, the two client fees are recognised as platform revenue immediately.
++    const fees = calculateOrderFees(amount, this.getFeeConfig());
++    if (buyer.availableBalance < fees.clientTotal) {
++      throw new Error(`Insufficient wallet balance. Available $${buyer.availableBalance.toFixed(2)}, required $${fees.clientTotal.toFixed(2)} (order $${fees.gigPrice.toFixed(2)} + fees $${(fees.serviceFee + fees.smallOrderFee).toFixed(2)}). Please add funds.`);
++    }
++
++    const fundEntries: Array<{ accountCode: string; debit: number; credit: number; currency: string; description: string; userId?: string; orderId?: string }> = [
++      { accountCode: this.walletAccount(buyer), debit: fees.clientTotal, credit: 0, currency: DEFAULT_CURRENCY, description: 'Debited buyer wallet for order price and client fees', userId: buyer.userId, orderId: params.orderId },
++      { accountCode: '2030', debit: 0, credit: fees.gigPrice, currency: DEFAULT_CURRENCY, description: 'Locked in escrow protection vault', orderId: params.orderId }
++    ];
++    if (fees.serviceFee > 0) {
++      fundEntries.push({ accountCode: '4020', debit: 0, credit: fees.serviceFee, currency: DEFAULT_CURRENCY, description: `${this.buyerFeePercent}% client service fee on Order #${params.orderId}`, orderId: params.orderId });
++    }
++    if (fees.smallOrderFee > 0) {
++      fundEntries.push({ accountCode: '4030', debit: 0, credit: fees.smallOrderFee, currency: DEFAULT_CURRENCY, description: `Small-order fee ($${fees.smallOrderFee.toFixed(2)}, order under $${this.smallOrderThreshold}) on Order #${params.orderId}`, orderId: params.orderId });
+     }
+ 
+     const journal = this.postJournal({
+@@ -619,10 +672,7 @@ export class FinanceLedgerEngine {
+       idempotencyKey: `IDEMP-ORD-FUND-${params.orderId}`,
+       actor: params.actor,
+       timestamp: params.timestamp,
+-      entries: [
+-        { accountCode: this.walletAccount(buyer), debit: amount, credit: 0, currency: DEFAULT_CURRENCY, description: 'Debited buyer wallet for order escrow funding', userId: buyer.userId, orderId: params.orderId },
+-        { accountCode: '2030', debit: 0, credit: amount, currency: DEFAULT_CURRENCY, description: 'Locked in escrow protection vault', orderId: params.orderId }
+-      ]
++      entries: fundEntries
+     });
+     buyer.fundsOnHold = FinanceLedgerEngine.round(buyer.fundsOnHold + amount);
+     this.escrows.set(params.orderId, {
+@@ -636,10 +686,14 @@ export class FinanceLedgerEngine {
+       releasedGross: 0,
+       refundSeq: 0,
+       status: 'held',
+-      fundedAt: params.timestamp || nowStr()
++      fundedAt: params.timestamp || nowStr(),
++      commissionPercent: this.platformCommissionRate,
++      serviceFee: fees.serviceFee,
++      smallOrderFee: fees.smallOrderFee,
++      feesRefunded: false
+     });
+-    this.audit({ actor: params.actor, role: 'system', action: 'ESCROW_FUNDS_LOCKED', target: `Order #${params.orderId}`, reason: `Locked $${amount.toFixed(2)} from buyer wallet`, journalId: journal.id });
+-    return { journal, escrow: this.escrows.get(params.orderId)! };
++    this.audit({ actor: params.actor, role: 'system', action: 'ESCROW_FUNDS_LOCKED', target: `Order #${params.orderId}`, reason: `Locked $${amount.toFixed(2)} in escrow; client charged $${fees.clientTotal.toFixed(2)} total (service fee $${fees.serviceFee.toFixed(2)}, small-order fee $${fees.smallOrderFee.toFixed(2)})`, journalId: journal.id });
++    return { journal, escrow: this.escrows.get(params.orderId)!, fees };
+   }
+ 
+   // Releases everything still held for the order: net to seller, commission to the platform.
+@@ -655,17 +709,18 @@ export class FinanceLedgerEngine {
+     const buyer = this.wallets.get(esc.buyerId);
+ 
+     const grossCents = Math.round(esc.remaining * 100);
+-    const feeCents = Math.round((grossCents * this.platformCommissionRate) / 100);
++    const commissionRate = esc.commissionPercent ?? this.platformCommissionRate; // rate locked in at funding
++    const feeCents = percentOfCents(grossCents, commissionRate);
+     const gross = grossCents / 100;
+     const platformFee = feeCents / 100;
+     const freelancerNet = (grossCents - feeCents) / 100;
+ 
+     const entries: Array<{ accountCode: string; debit: number; credit: number; currency: string; description: string; userId?: string; orderId?: string }> = [
+       { accountCode: '2030', debit: gross, credit: 0, currency: DEFAULT_CURRENCY, description: `Released funds held in escrow for Order #${params.orderId}`, orderId: params.orderId },
+-      { accountCode: this.walletAccount(seller), debit: 0, credit: freelancerNet, currency: DEFAULT_CURRENCY, description: `Credited net earnings to ${seller.userName} (after ${this.platformCommissionRate}% commission)`, userId: seller.userId, orderId: params.orderId }
++      { accountCode: this.walletAccount(seller), debit: 0, credit: freelancerNet, currency: DEFAULT_CURRENCY, description: `Credited net earnings to ${seller.userName} (after ${commissionRate}% commission)`, userId: seller.userId, orderId: params.orderId }
+     ];
+     if (platformFee > 0) {
+-      entries.push({ accountCode: '4010', debit: 0, credit: platformFee, currency: DEFAULT_CURRENCY, description: `${this.platformCommissionRate}% platform commission on Order #${params.orderId}`, orderId: params.orderId });
++      entries.push({ accountCode: '4010', debit: 0, credit: platformFee, currency: DEFAULT_CURRENCY, description: `${commissionRate}% platform commission on Order #${params.orderId}`, orderId: params.orderId });
+     }
+     const journal = this.postJournal({
+       reference: `ORD-${params.orderId}-RELEASE`,
+@@ -685,8 +740,8 @@ export class FinanceLedgerEngine {
+   }
+ 
+   // Refunds all (default) or part of what is still held back to the buyer wallet.
+-  public refundEscrow(params: { orderId: string; amount?: number; reason: string; actor: string; requestKey?: string }): { journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; remaining: number } {
+-    const cached = this.replay<{ journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; remaining: number }>(params.requestKey);
++  public refundEscrow(params: { orderId: string; amount?: number; reason: string; actor: string; requestKey?: string }): { journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; feesRefunded: number; remaining: number } {
++    const cached = this.replay<{ journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; feesRefunded: number; remaining: number }>(params.requestKey);
+     if (cached) return cached;
+     const why = FinanceLedgerEngine.assertReason(params.reason, 'A refund reason');
+     const esc = this.escrows.get(params.orderId);
+@@ -697,24 +752,37 @@ export class FinanceLedgerEngine {
+     const buyer = this.requireWallet(esc.buyerId);
+     if (buyer.status === 'frozen') throw new Error('Buyer wallet is frozen; refund blocked until it is unfrozen.');
+ 
++    // When the refunds add up to the whole order (nothing was released), the client fees are returned too.
++    // Partial refunds and dispute splits keep the fees, because the order is still partly delivered.
++    const completesFullRefund = FinanceLedgerEngine.round(esc.refundedTotal + amount) === esc.amount && esc.releasedGross === 0;
++    const refundFees = this.refundClientFeesOnFullRefund && completesFullRefund && !esc.feesRefunded;
++    const serviceFeeBack = refundFees ? esc.serviceFee : 0;
++    const smallFeeBack = refundFees ? esc.smallOrderFee : 0;
++    const feesBack = FinanceLedgerEngine.round(serviceFeeBack + smallFeeBack);
++
++    const refundEntries: Array<{ accountCode: string; debit: number; credit: number; currency: string; description: string; userId?: string; orderId?: string }> = [
++      { accountCode: '2030', debit: amount, credit: 0, currency: DEFAULT_CURRENCY, description: `Debited escrow liability for refunded Order #${params.orderId}`, orderId: params.orderId }
++    ];
++    if (serviceFeeBack > 0) refundEntries.push({ accountCode: '4020', debit: serviceFeeBack, credit: 0, currency: DEFAULT_CURRENCY, description: `Reversed client service fee on fully refunded Order #${params.orderId}`, orderId: params.orderId });
++    if (smallFeeBack > 0) refundEntries.push({ accountCode: '4030', debit: smallFeeBack, credit: 0, currency: DEFAULT_CURRENCY, description: `Reversed small-order fee on fully refunded Order #${params.orderId}`, orderId: params.orderId });
++    refundEntries.push({ accountCode: this.walletAccount(buyer), debit: 0, credit: FinanceLedgerEngine.round(amount + feesBack), currency: DEFAULT_CURRENCY, description: `Restored available wallet balance for ${buyer.userName}${feesBack > 0 ? ' (including client fees)' : ''}`, userId: buyer.userId, orderId: params.orderId });
++
+     const journal = this.postJournal({
+       reference: `ORD-${params.orderId}-REFUND-${esc.refundSeq + 1}`,
+       description: `Escrow refund to Buyer for Order #${params.orderId} (${esc.orderTitle}): ${why}`,
+-      eventType: 'ESCROW_REFUNDED_TO_BUYER',
++      eventType: feesBack > 0 ? 'ESCROW_REFUNDED_WITH_FEES' : 'ESCROW_REFUNDED_TO_BUYER',
+       idempotencyKey: `IDEMP-REF-${params.orderId}-${esc.refundSeq + 1}`,
+       actor: params.actor,
+-      entries: [
+-        { accountCode: '2030', debit: amount, credit: 0, currency: DEFAULT_CURRENCY, description: `Debited escrow liability for refunded Order #${params.orderId}`, orderId: params.orderId },
+-        { accountCode: this.walletAccount(buyer), debit: 0, credit: amount, currency: DEFAULT_CURRENCY, description: `Restored available wallet balance for ${buyer.userName}`, userId: buyer.userId, orderId: params.orderId }
+-      ]
++      entries: refundEntries
+     });
++    if (feesBack > 0) esc.feesRefunded = true;
+     buyer.fundsOnHold = FinanceLedgerEngine.round(Math.max(0, buyer.fundsOnHold - amount));
+     esc.remaining = FinanceLedgerEngine.round(esc.remaining - amount);
+     esc.refundedTotal = FinanceLedgerEngine.round(esc.refundedTotal + amount);
+     esc.refundSeq += 1;
+     if (esc.remaining === 0) esc.status = 'refunded';
+     this.audit({ actor: params.actor, action: 'ESCROW_REFUNDED', target: `Order #${params.orderId}`, reason: why, journalId: journal.id });
+-    return this.remember(params.requestKey, { journal, buyerWallet: buyer, refunded: amount, remaining: esc.remaining });
++    return this.remember(params.requestKey, { journal, buyerWallet: buyer, refunded: amount, feesRefunded: feesBack, remaining: esc.remaining });
+   }
+ 
+   // Dispute split: refund `refundAmount` to the buyer and release the rest to the seller.
+@@ -952,7 +1020,12 @@ export class FinanceLedgerEngine {
+       availableFreelancerBalances: FinanceLedgerEngine.round(totalFreelancerLiabilities),
+       fundsHeldInEscrow: escrowHeld,
+       pendingPayouts: Math.max(0, this.accountNet('2040')),
+-      platformRevenue: this.accountNet('4010'),
++      platformRevenue: FinanceLedgerEngine.round(this.accountNet('4010') + this.accountNet('4020') + this.accountNet('4030')),
++      revenueBreakdown: {
++        commission: this.accountNet('4010'),
++        clientServiceFees: this.accountNet('4020'),
++        smallOrderFees: this.accountNet('4030')
++      },
+       failedTransactionsCount: this.transactions.filter(t => t.status === 'failed').length,
+       unreconciledExceptionsCount: this.exceptions.filter(e => e.status === 'unresolved').length,
+       trialBalanceInBalance: trialBalanceDiff === 0,
+diff --git a/src/server/siteSettings.ts b/src/server/siteSettings.ts
+index f22e98d..e52606e 100644
+--- a/src/server/siteSettings.ts
++++ b/src/server/siteSettings.ts
+@@ -1,6 +1,7 @@
+ // Authoritative Settings & Shared Fee Calculation Service for WorkPerHour
+ 
+ import { financeLedger, FinanceLedgerEngine } from './financeLedger.js';
++import { DEFAULT_FEE_CONFIG, calculateOrderFees, type FeeConfig } from '../shared/fees.js';
+ 
+ export interface WebsiteSettings {
+   siteName: string;
+@@ -13,9 +14,11 @@ export interface WebsiteSettings {
+ }
+ 
+ export interface PlatformCommissionSettings {
+-  commissionPercent: number; // e.g. 10 or 15
+-  buyerProcessingFeePercent: number; // e.g. 2.5
+-  buyerProcessingFeeFixed: number; // e.g. 0.00
++  commissionPercent: number; // platform cut of the gig price; freelancer keeps the rest (default 20)
++  buyerProcessingFeePercent: number; // client service fee on top of the gig price (default 5.5)
++  smallOrderFeeAmount: number; // flat fee added when the gig price is under the threshold (default 3.50)
++  smallOrderFeeThreshold: number; // gig price below this triggers the small-order fee (default 200)
++  refundClientFeesOnFullRefund: boolean; // return service + small-order fee when an order is fully refunded
+   minimumOrderAmount: number; // e.g. 5.00
+   escrowProtectionDays: number; // default 14
+   commissionDeductionTiming: 'on_escrow_release' | 'on_order_checkout';
+@@ -137,9 +140,11 @@ export const DEFAULT_SITE_SETTINGS: SiteSettingsState = {
+     copyrightText: '© 2026 WorkPerHour Inc. All rights reserved.'
+   },
+   commission: {
+-    commissionPercent: 20, // 20% platform take rate
+-    buyerProcessingFeePercent: 2.5, // 2.5% payment processing surcharge
+-    buyerProcessingFeeFixed: 0.0,
++    commissionPercent: DEFAULT_FEE_CONFIG.commissionPercent, // 20% platform take rate
++    buyerProcessingFeePercent: DEFAULT_FEE_CONFIG.buyerFeePercent, // 5.5% client service fee
++    smallOrderFeeAmount: DEFAULT_FEE_CONFIG.smallOrderFee, // $3.50 flat fee...
++    smallOrderFeeThreshold: DEFAULT_FEE_CONFIG.smallOrderThreshold, // ...on orders under $200
++    refundClientFeesOnFullRefund: true,
+     minimumOrderAmount: 10.0,
+     escrowProtectionDays: 14, // 14-day mandatory vault
+     commissionDeductionTiming: 'on_escrow_release'
+@@ -219,8 +224,8 @@ export class SiteSettingsService {
+     // Deep clone defaults
+     this.settings = JSON.parse(JSON.stringify(DEFAULT_SITE_SETTINGS));
+     this.seedInitialHistory();
+-    // Sync initial commission rate to finance engine
+-    financeLedger.setPlatformCommissionRate(this.settings.commission.commissionPercent);
++    // Sync initial fee rules to finance engine
++    this.syncFeesToLedger();
+   }
+ 
+   private seedInitialHistory() {
+@@ -254,36 +259,46 @@ export class SiteSettingsService {
+     return [...this.history];
+   }
+ 
+-  // Shared Fee Calculation Service: Used across entire application
+-  public calculateFeeSplit(orderAmount: number, customCommissionPercent?: number) {
+-    const commissionPercent = customCommissionPercent !== undefined
+-      ? customCommissionPercent
+-      : this.settings.commission.commissionPercent;
+-
+-    const roundedAmount = FinanceLedgerEngine.round(Math.max(0, orderAmount));
+-    const platformFee = FinanceLedgerEngine.round(roundedAmount * (commissionPercent / 100));
+-    const freelancerAmount = FinanceLedgerEngine.round(roundedAmount - platformFee);
+-    const freelancerPercent = FinanceLedgerEngine.round(100 - commissionPercent);
+-
+-    // Separate Buyer Processing Fee calculation
+-    const buyerFee = FinanceLedgerEngine.round(
+-      (roundedAmount * (this.settings.commission.buyerProcessingFeePercent / 100)) +
+-      this.settings.commission.buyerProcessingFeeFixed
+-    );
+-    const totalBuyerCharged = FinanceLedgerEngine.round(roundedAmount + buyerFee);
++  // Shared Fee Calculation Service: Used across entire application.
++  // Delegates to src/shared/fees.ts so the ledger, the API and the UI all use identical math.
++  public getFeeConfig(customCommissionPercent?: number): FeeConfig {
++    const c = this.settings.commission;
++    return {
++      commissionPercent: customCommissionPercent !== undefined ? customCommissionPercent : c.commissionPercent,
++      buyerFeePercent: c.buyerProcessingFeePercent,
++      smallOrderFee: c.smallOrderFeeAmount,
++      smallOrderThreshold: c.smallOrderFeeThreshold
++    };
++  }
+ 
++  public calculateFeeSplit(orderAmount: number, customCommissionPercent?: number) {
++    const f = calculateOrderFees(Math.max(0, orderAmount), this.getFeeConfig(customCommissionPercent));
+     return {
+-      orderAmount: roundedAmount,
+-      commissionPercent,
+-      platformFee,
+-      freelancerPercent,
+-      freelancerAmount,
++      orderAmount: f.gigPrice,
++      commissionPercent: this.getFeeConfig(customCommissionPercent).commissionPercent,
++      platformFee: f.platformCommission,
++      freelancerPercent: f.freelancerPercent,
++      freelancerAmount: f.freelancerNet,
+       buyerProcessingFeePercent: this.settings.commission.buyerProcessingFeePercent,
+-      buyerFee,
+-      totalBuyerCharged
++      buyerFee: f.serviceFee,
++      smallOrderFee: f.smallOrderFee,
++      totalBuyerCharged: f.clientTotal
+     };
+   }
+ 
++  // Pushes every fee rule to the finance ledger, which is what actually enforces them on money movement.
++  private syncFeesToLedger() {
++    const c = this.settings.commission;
++    financeLedger.configure({
++      commissionPercent: c.commissionPercent,
++      buyerFeePercent: c.buyerProcessingFeePercent,
++      smallOrderFee: c.smallOrderFeeAmount,
++      smallOrderThreshold: c.smallOrderFeeThreshold,
++      refundClientFeesOnFullRefund: c.refundClientFeesOnFullRefund,
++      minimumOrderAmount: c.minimumOrderAmount
++    });
++  }
++
+   // Update a specific section of settings
+   public updateSection<K extends keyof SiteSettingsState>(
+     section: K,
+@@ -319,11 +334,15 @@ export class SiteSettingsService {
+       ...updates
+     };
+ 
+-    // If commission rate changed, sync immediately to double-entry finance ledger
+-    if (section === 'commission' && (updates as any).commissionPercent !== undefined) {
+-      const newRate = Number((updates as any).commissionPercent);
+-      if (newRate >= 0 && newRate <= 100) {
+-        financeLedger.setPlatformCommissionRate(newRate);
++    // If any fee rule changed, sync immediately to the double-entry finance ledger
++    if (section === 'commission') {
++      try {
++        this.syncFeesToLedger();
++      } catch (err) {
++        // Invalid fee values must never reach money movement: roll the section back and re-throw.
++        this.settings[section] = currentSection;
++        this.syncFeesToLedger();
++        throw err;
+       }
+     }
+ 
+@@ -348,7 +367,7 @@ export class SiteSettingsService {
+       });
+ 
+       if (section === 'commission') {
+-        financeLedger.setPlatformCommissionRate(DEFAULT_SITE_SETTINGS.commission.commissionPercent);
++        this.syncFeesToLedger();
+       }
+     } else {
+       this.settings = JSON.parse(JSON.stringify(DEFAULT_SITE_SETTINGS));
+@@ -362,7 +381,7 @@ export class SiteSettingsService {
+         actor,
+         notes: 'Reset all 9 settings sections back to platform factory defaults'
+       });
+-      financeLedger.setPlatformCommissionRate(DEFAULT_SITE_SETTINGS.commission.commissionPercent);
++      this.syncFeesToLedger();
+     }
+ 
+     return this.getSettings();
+diff --git a/src/shared/fees.ts b/src/shared/fees.ts
+new file mode 100644
+index 0000000..3fac733
+--- /dev/null
++++ b/src/shared/fees.ts
+@@ -0,0 +1,90 @@
++// Single source of truth for WorkPerHour order fee math.
++// Pure functions only (no server or React imports) so the ledger, the API and any UI can share it.
++// All arithmetic is done in integer cents using basis points, so there is no floating-point drift.
++
++export interface FeeConfig {
++  /** Platform commission taken from the gig price (freelancer keeps 100 - this). Default 20. */
++  commissionPercent: number;
++  /** Client service fee charged on top of the gig price. Default 5.5. */
++  buyerFeePercent: number;
++  /** Flat fee added when the gig price is under the threshold. Default 3.50. */
++  smallOrderFee: number;
++  /** Orders with a gig price strictly below this get the small-order fee. Default 200. */
++  smallOrderThreshold: number;
++}
++
++export const DEFAULT_FEE_CONFIG: FeeConfig = {
++  commissionPercent: 20,
++  buyerFeePercent: 5.5,
++  smallOrderFee: 3.5,
++  smallOrderThreshold: 200
++};
++
++export interface OrderFeeBreakdown {
++  gigPrice: number;          // what the freelancer's gig/extras cost (escrowed amount)
++  serviceFee: number;        // client service fee (buyerFeePercent of gigPrice)
++  smallOrderFee: number;     // flat fee, 0 when gigPrice >= threshold
++  clientTotal: number;       // gigPrice + serviceFee + smallOrderFee: what the client pays
++  platformCommission: number;// commissionPercent of gigPrice, taken at escrow release
++  freelancerNet: number;     // gigPrice - platformCommission
++  freelancerPercent: number; // 100 - commissionPercent
++  platformRevenue: number;   // commission + serviceFee + smallOrderFee
++  cents: {
++    gigPrice: number; serviceFee: number; smallOrderFee: number; clientTotal: number;
++    platformCommission: number; freelancerNet: number;
++  };
++}
++
++/** percent of an integer-cent amount, rounded half-up to a whole cent. */
++export function percentOfCents(cents: number, percent: number): number {
++  const bps = Math.round(percent * 100); // 5.5% -> 550 basis points
++  return Math.floor((cents * bps + 5000) / 10000);
++}
++
++export function toCents(amount: number): number {
++  if (typeof amount !== 'number' || !Number.isFinite(amount) || amount < 0) {
++    throw new Error('Amount must be a non-negative number.');
++  }
++  return Math.round(amount * 100);
++}
++
++export function validateFeeConfig(cfg: FeeConfig): void {
++  const pct = (v: number) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100;
++  if (!pct(cfg.commissionPercent)) throw new Error('commissionPercent must be between 0 and 100.');
++  if (!pct(cfg.buyerFeePercent)) throw new Error('buyerFeePercent must be between 0 and 100.');
++  if (typeof cfg.smallOrderFee !== 'number' || !Number.isFinite(cfg.smallOrderFee) || cfg.smallOrderFee < 0) {
++    throw new Error('smallOrderFee must be a non-negative number.');
++  }
++  if (typeof cfg.smallOrderThreshold !== 'number' || !Number.isFinite(cfg.smallOrderThreshold) || cfg.smallOrderThreshold < 0) {
++    throw new Error('smallOrderThreshold must be a non-negative number.');
++  }
++}
++
++/**
++ * Fee rules:
++ *  1. Freelancer commission: platform keeps commissionPercent (20%) of the gig price; freelancer gets the rest (80%).
++ *  2. Client service fee: buyerFeePercent (5.5%) of the gig price, charged on top.
++ *  3. Small-order fee: flat smallOrderFee ($3.50) on top when the gig price is under smallOrderThreshold ($200).
++ *     The threshold is tested against the gig price (gig + selected extras), before the service fee.
++ */
++export function calculateOrderFees(gigPrice: number, cfg: FeeConfig = DEFAULT_FEE_CONFIG): OrderFeeBreakdown {
++  validateFeeConfig(cfg);
++  const gig = toCents(gigPrice);
++  const service = percentOfCents(gig, cfg.buyerFeePercent);
++  const small = gig > 0 && gig < toCents(cfg.smallOrderThreshold) ? toCents(cfg.smallOrderFee) : 0;
++  const commission = percentOfCents(gig, cfg.commissionPercent);
++  const net = gig - commission;
++  const total = gig + service + small;
++  const d = (c: number) => c / 100;
++  return {
++    gigPrice: d(gig),
++    serviceFee: d(service),
++    smallOrderFee: d(small),
++    clientTotal: d(total),
++    platformCommission: d(commission),
++    freelancerNet: d(net),
++    freelancerPercent: Math.round((100 - cfg.commissionPercent) * 100) / 100,
++    platformRevenue: d(commission + service + small),
++    cents: { gigPrice: gig, serviceFee: service, smallOrderFee: small, clientTotal: total, platformCommission: commission, freelancerNet: net }
++  };
++}
+diff --git a/src/types.ts b/src/types.ts
+index d6b91a9..f72af7b 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -237,9 +237,11 @@ export interface InvoiceItem {
+   status: 'paid' | 'in_escrow' | 'unpaid' | 'refunded';
+   items: Array<{ description: string; quantity: number; unitPrice: number; amount: number }>;
+   subtotal: number;
+-  platformFee: number;
++  serviceFee?: number;      // client service fee charged on top of the subtotal
++  smallOrderFee?: number;   // flat fee for orders under the small-order threshold
++  platformFee: number;      // platform commission taken from the freelancer
+   tax: number;
+-  total: number;
++  total: number;            // what the client paid (subtotal + client fees)
+   notes?: string;
+   relatedOrderId?: string;
+ }
+diff --git a/tests/fees.test.ts b/tests/fees.test.ts
+new file mode 100644
+index 0000000..6418833
+--- /dev/null
++++ b/tests/fees.test.ts
+@@ -0,0 +1,112 @@
++// Fee structure tests: 20% freelancer commission, 5.5% client service fee, $3.50 small-order fee under $200.
++// Run with: npx tsx tests/fees.test.ts
++import { FinanceLedgerEngine } from '../src/server/financeLedger.js';
++import { calculateOrderFees, DEFAULT_FEE_CONFIG } from '../src/shared/fees.js';
++
++let passed = 0, failed = 0;
++function assert(cond: boolean, name: string, details?: string) {
++  if (cond) { console.log(`[PASS] ${name}`); passed++; } else { console.error(`[FAIL] ${name} - ${details || ''}`); failed++; }
++}
++function throws(fn: () => unknown, name: string, contains?: string) {
++  try { fn(); assert(false, name, 'expected an error'); } catch (e: any) { assert(!contains || String(e.message).includes(contains), name, `got: ${e.message}`); }
++}
++const eq = (a: number, b: number) => Math.abs(a - b) < 1e-9;
++
++function freshEngine(buyerFunds = 100000) {
++  const e = new FinanceLedgerEngine();
++  e.ensureWallet({ userId: 'buyer1', name: 'Buyer', email: 'b@x.com', role: 'buyer' });
++  e.ensureWallet({ userId: 'free1', name: 'Freelancer', email: 'f@x.com', role: 'freelancer' });
++  e.creditDeposit({ userId: 'buyer1', amount: buyerFunds, reference: 'seed', idempotencyKey: 'seed-' + Math.random(), actor: 'test' });
++  return e;
++}
++const ok = (e: FinanceLedgerEngine) => e.getInvariants().every(i => i.ok) && e.getFinancialOverview().trialBalanceInBalance;
++const fund = (e: FinanceLedgerEngine, id: string, amount: number) =>
++  e.fundEscrow({ orderId: id, orderTitle: 'Test gig', amount, buyerId: 'buyer1', sellerId: 'free1', actor: 'test' });
++
++function run() {
++  // ---- pure math ----
++  let f = calculateOrderFees(50);
++  assert(eq(f.serviceFee, 2.75) && eq(f.smallOrderFee, 3.5) && eq(f.clientTotal, 56.25), '$50 gig: 5.5% fee $2.75 + small-order $3.50 = client pays $56.25', JSON.stringify(f));
++  assert(eq(f.platformCommission, 10) && eq(f.freelancerNet, 40), '$50 gig: freelancer gets exactly 80% ($40), commission $10');
++  f = calculateOrderFees(199.99);
++  assert(f.smallOrderFee === 3.5, '$199.99 is under $200: small-order fee applies');
++  f = calculateOrderFees(200);
++  assert(f.smallOrderFee === 0 && eq(f.serviceFee, 11) && eq(f.clientTotal, 211), '$200 is not under $200: no small-order fee, total $211');
++  f = calculateOrderFees(500);
++  assert(eq(f.serviceFee, 27.5) && f.smallOrderFee === 0 && eq(f.clientTotal, 527.5) && eq(f.freelancerNet, 400), '$500 gig: service fee $27.50, total $527.50, freelancer $400');
++  f = calculateOrderFees(0.01);
++  assert(f.cents.serviceFee === 0 && f.cents.platformCommission === 0, 'Sub-cent fees round to zero without NaN');
++  f = calculateOrderFees(19.99);
++  assert(f.cents.clientTotal === f.cents.gigPrice + f.cents.serviceFee + f.cents.smallOrderFee, 'Cents always add up: gig + fees = client total');
++  assert(f.cents.platformCommission + f.cents.freelancerNet === f.cents.gigPrice, 'Commission + freelancer net always equals gig price exactly');
++  throws(() => calculateOrderFees(-5), 'Negative price rejected');
++  throws(() => calculateOrderFees(NaN), 'NaN price rejected');
++  assert(DEFAULT_FEE_CONFIG.commissionPercent === 20 && DEFAULT_FEE_CONFIG.buyerFeePercent === 5.5 && DEFAULT_FEE_CONFIG.smallOrderFee === 3.5 && DEFAULT_FEE_CONFIG.smallOrderThreshold === 200, 'Defaults are 20% / 5.5% / $3.50 / $200');
++
++  // ---- ledger defaults enforce the structure with no configuration ----
++  let e = freshEngine();
++  const b0 = e.getWalletBalance('buyer1')!;
++  fund(e, 'o50', 50);
++  assert(eq(e.getWalletBalance('buyer1')!, b0 - 56.25), 'Funding a $50 order debits the buyer $56.25');
++  assert(eq(e.getEscrow('o50')!.remaining, 50), 'Only the $50 gig price is held in escrow');
++  assert(ok(e), 'Invariants hold after funding');
++  const rel = e.releaseEscrow({ orderId: 'o50', actor: 'test' });
++  assert(rel.freelancerNet === 40 && rel.platformFee === 10, 'Release: freelancer $40, commission $10');
++  assert(eq(e.getWalletBalance('free1')!, 40), 'Freelancer wallet credited exactly $40');
++  const ov = e.getFinancialOverview();
++  assert(eq(ov.platformRevenue, 10 + 2.75 + 3.5) && eq(ov.revenueBreakdown.commission, 10) && eq(ov.revenueBreakdown.clientServiceFees, 2.75) && eq(ov.revenueBreakdown.smallOrderFees, 3.5), 'Platform revenue = $10 commission + $2.75 service fee + $3.50 small-order fee', JSON.stringify(ov.revenueBreakdown));
++  assert(ok(e), 'Invariants and trial balance hold after release');
++
++  // ---- balance must cover the FULL client total, not just the gig price ----
++  e = freshEngine(52);
++  throws(() => fund(e, 'tight', 50), 'Wallet of $52 cannot fund a $50 order (needs $56.25)', 'Insufficient');
++  assert(eq(e.getWalletBalance('buyer1')!, 52) && !e.getEscrow('tight'), 'Failed funding changes nothing');
++
++  // ---- $200+ order ----
++  e = freshEngine();
++  fund(e, 'o500', 500);
++  assert(eq(e.getWalletBalance('buyer1')!, 100000 - 527.5), '$500 order debits $527.50 (no small-order fee)');
++  const rel2 = e.releaseEscrow({ orderId: 'o500', actor: 'test' });
++  assert(rel2.freelancerNet === 400 && rel2.platformFee === 100, '$500 order: freelancer $400, commission $100');
++
++  // ---- full refund returns the client fees ----
++  e = freshEngine();
++  const start = e.getWalletBalance('buyer1')!;
++  fund(e, 'r1', 50);
++  const r = e.refundEscrow({ orderId: 'r1', reason: 'buyer cancelled before work', actor: 'test' });
++  assert(eq(e.getWalletBalance('buyer1')!, start) && eq(r.feesRefunded, 6.25), 'Full refund returns gig price AND client fees ($56.25 back)', String(e.getWalletBalance('buyer1')));
++  assert(eq(e.getFinancialOverview().platformRevenue, 0) && ok(e), 'Revenue reversed to $0 and invariants hold after full refund');
++
++  // ---- partial refunds / split keep fees ----
++  e = freshEngine();
++  fund(e, 's1', 100);
++  const sp = e.resolveEscrowSplit({ orderId: 's1', refundAmount: 40, reason: 'dispute partial', actor: 'test' });
++  assert(sp.refund.feesRefunded === 0, 'Dispute split does not refund client fees');
++  assert(sp.release.platformFee === 12 && sp.release.freelancerNet === 48, 'Split: remaining $60 releases as $48 freelancer / $12 commission');
++  assert(eq(e.getFinancialOverview().revenueBreakdown.clientServiceFees, 5.5) && eq(e.getFinancialOverview().revenueBreakdown.smallOrderFees, 3.5) && ok(e), 'Split keeps $5.50 + $3.50 client fees; invariants hold');
++
++  // ---- two partial refunds that add up to the whole order refund the fees once ----
++  e = freshEngine();
++  const st2 = e.getWalletBalance('buyer1')!;
++  fund(e, 'm1', 100);
++  e.refundEscrow({ orderId: 'm1', amount: 30, reason: 'first part refund', actor: 'test' });
++  const last = e.refundEscrow({ orderId: 'm1', reason: 'rest refunded', actor: 'test' });
++  assert(eq(last.feesRefunded, 9) && eq(e.getWalletBalance('buyer1')!, st2) && ok(e), 'Refunds that sum to the whole order return fees exactly once');
++
++  // ---- commission rate is locked at funding time ----
++  e = freshEngine();
++  fund(e, 'lock', 100);
++  e.setPlatformCommissionRate(50);
++  const rl = e.releaseEscrow({ orderId: 'lock', actor: 'test' });
++  assert(rl.platformFee === 20 && rl.freelancerNet === 80, 'Changing the commission after funding does not change an open order (still 20/80)');
++
++  // ---- configurable ----
++  e = freshEngine();
++  e.configure({ buyerFeePercent: 10, smallOrderFee: 5, smallOrderThreshold: 100 });
++  assert(eq(e.quoteOrder(50).clientTotal, 60), 'Fees follow configuration (10% + $5 under $100 => $60 for $50)');
++  throws(() => e.configure({ buyerFeePercent: 150 }), 'Out-of-range fee config rejected', 'buyerFeePercent');
++
++  console.log(`\nFEE TEST SUMMARY: ${passed} PASSED, ${failed} FAILED\n`);
++  if (failed > 0) process.exit(1);
++}
++run();
++

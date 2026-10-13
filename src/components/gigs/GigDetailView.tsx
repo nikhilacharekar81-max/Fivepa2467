@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Star, Sparkles, Clock, RefreshCw, ShieldCheck, Lock, MessageSquare } from 'lucide-react';
 import { Gig, Review } from '../../types';
 import { RelatedGigsSection } from './RelatedGigsSection';
@@ -26,7 +26,7 @@ interface GigDetailViewProps {
   reviews: Review[];
   navigate: (path: string, e?: React.MouseEvent) => void;
   handleContactSeller: (freelancerId: string, freelancerName: string, gigTitle: string) => void;
-  handleCreateOrder: (orderTitle: string, priceUSD: number, sellerId: string) => void;
+  handleCreateOrder: (orderTitle: string, priceUSD: number, sellerId: string, gigId?: string, extraIds?: string[]) => void;
   slugify?: (text: string) => string;
 }
 
@@ -41,6 +41,19 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
 }) => {
   const [selectedExtras, setSelectedExtras] = useState<string[]>([]);
   const [isPuppetVideoPlaying, setIsPuppetVideoPlaying] = useState<boolean>(false);
+
+  // Fee quote from the server: the same math the ledger applies when the order is funded.
+  const [quote, setQuote] = useState<{ gigPrice: number; serviceFee: number; smallOrderFee: number; clientTotal: number; config?: { buyerFeePercent: number; smallOrderThreshold: number } } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const qs = new URLSearchParams({ gigId: currentGig.id });
+    if (selectedExtras.length > 0) qs.set('extraIds', selectedExtras.join(','));
+    fetch(`/api/fees/quote?${qs.toString()}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(q => { if (!cancelled) setQuote(q); })
+      .catch(() => { if (!cancelled) setQuote(null); });
+    return () => { cancelled = true; };
+  }, [currentGig.id, selectedExtras]);
 
   const safeSlugify = (str: string) => {
     if (slugify) return slugify(str);
@@ -309,16 +322,33 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
                     </div>
                   )}
 
-                  {/* Total Summary */}
-                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                    <div>
-                      <span className="text-xs text-fiverr-muted block font-normal">Total Escrow Amount</span>
-                      {selectedExtras.length > 0 && (
-                        <span className="text-xs text-emerald-600 font-bold block">Includes {selectedExtras.length} selected extra(s)</span>
-                      )}
-                    </div>
-                    <span className="text-[19px] font-bold text-fiverr-dark">${totalUSD.toLocaleString()}</span>
-                  </div>
+                  {/* Price breakdown and Total Summary */}
+                  {(() => {
+                    const q = quote && Math.abs(quote.gigPrice - totalUSD) < 0.005 ? quote : null;
+                    const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                    return (
+                      <>
+                        {q && (
+                          <div className="pt-4 border-t border-slate-100 space-y-1.5 text-xs text-fiverr-muted">
+                            <div className="flex justify-between"><span>Order{selectedExtras.length > 0 ? ' + extras' : ''}</span><span>{money(q.gigPrice)}</span></div>
+                            <div className="flex justify-between"><span>Service fee ({q.config?.buyerFeePercent ?? 5.5}%)</span><span>{money(q.serviceFee)}</span></div>
+                            {q.smallOrderFee > 0 && (
+                              <div className="flex justify-between"><span>Small order fee (under ${q.config?.smallOrderThreshold ?? 200})</span><span>{money(q.smallOrderFee)}</span></div>
+                            )}
+                          </div>
+                        )}
+                        <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+                          <div>
+                            <span className="text-xs text-fiverr-muted block font-normal">{q ? 'Total you pay' : 'Order amount (fees added at checkout)'}</span>
+                            {selectedExtras.length > 0 && (
+                              <span className="text-xs text-emerald-600 font-bold block">Includes {selectedExtras.length} selected extra(s)</span>
+                            )}
+                          </div>
+                          <span className="text-[19px] font-bold text-fiverr-dark">{q ? money(q.clientTotal) : `$${totalUSD.toLocaleString()}`}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
 
                   <div className="bg-emerald-50 border border-emerald-200/60 rounded-2xl p-3 flex items-start gap-2.5 text-[11px] text-emerald-900">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
@@ -329,12 +359,14 @@ export const GigDetailView: React.FC<GigDetailViewProps> = ({
                     onClick={() => handleCreateOrder(
                       `${currentGig.title}${selectedExtrasObjects.length > 0 ? ` (with ${selectedExtrasObjects.length} extra add-ons)` : ''}`, 
                       totalUSD, 
-                      currentGig.freelancerId
+                      currentGig.freelancerId,
+                      currentGig.id,
+                      selectedExtras
                     )}
                     className="w-full py-4 bg-emerald-500 text-slate-950 font-bold rounded-2xl hover:bg-emerald-400 transition-colors shadow-md text-xs flex items-center justify-center gap-2 cursor-pointer"
                   >
                     <Lock className="w-4 h-4" />
-                    <span>Fund ${totalUSD.toLocaleString()} in Escrow & Order Now</span>
+                    <span>Fund in Escrow & Order Now</span>
                   </button>
                 </>
               );

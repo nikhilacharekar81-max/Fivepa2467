@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { DEFAULT_FEE_CONFIG, calculateOrderFees, percentOfCents, validateFeeConfig, type FeeConfig } from '../shared/fees.js';
 
 // Authoritative Double-Entry Ledger & Financial Engine for WorkPerHour
 
@@ -20,7 +21,9 @@ export const CHART_OF_ACCOUNTS: ChartOfAccount[] = [
   { code: '2040', name: 'Pending Payout Liabilities', type: 'liability', normalBalance: 'credit', description: 'Requested withdrawals queued for bank or UPI transfer' },
   { code: '3010', name: 'Opening Balance Equity', type: 'equity', normalBalance: 'credit', description: 'Opening balances carried over when the ledger was introduced' },
   { code: '2050', name: 'Pending Refund Liabilities', type: 'liability', normalBalance: 'credit', description: 'Approved refund amounts queued for payment processor reversal' },
-  { code: '4010', name: 'Marketplace Platform Commission Fee', type: 'revenue', normalBalance: 'credit', description: '10% marketplace commission earned on completed orders' },
+  { code: '4010', name: 'Marketplace Platform Commission Fee', type: 'revenue', normalBalance: 'credit', description: 'Platform commission (default 20%) taken from the gig price when escrow is released' },
+  { code: '4020', name: 'Client Service Fee Revenue', type: 'revenue', normalBalance: 'credit', description: 'Client service fee (default 5.5% of gig price) collected at checkout' },
+  { code: '4030', name: 'Small-Order Fee Revenue', type: 'revenue', normalBalance: 'credit', description: 'Flat small-order fee (default $3.50 under $200) collected at checkout' },
   { code: '5010', name: 'Payment Processing Gateway Fees', type: 'expense', normalBalance: 'debit', description: 'Merchant fees charged by Stripe, Razorpay, or banks' },
   { code: '5020', name: 'Administrative & Goodwill Adjustments', type: 'expense', normalBalance: 'debit', description: 'Compensatory credits and goodwill dispute write-offs' },
 ];
@@ -50,6 +53,7 @@ export interface LedgerJournal {
     | 'ORDER_ESCROW_FUNDED'
     | 'ESCROW_RELEASED_TO_FREELANCER'
     | 'ESCROW_REFUNDED_TO_BUYER'
+    | 'ESCROW_REFUNDED_WITH_FEES'
     | 'PAYOUT_REQUESTED'
     | 'PAYOUT_SETTLED'
     | 'PAYOUT_CANCELLED'
@@ -164,6 +168,10 @@ export interface EscrowRecord {
   refundSeq: number;
   status: 'held' | 'released' | 'refunded' | 'split';
   fundedAt: string;
+  commissionPercent: number; // commission rate locked in when the escrow was funded
+  serviceFee: number;        // client service fee collected at funding (not held in escrow)
+  smallOrderFee: number;     // small-order fee collected at funding (not held in escrow)
+  feesRefunded: boolean;     // true once the client fees were returned on a full refund
 }
 
 export interface PayoutRecord {
@@ -196,7 +204,11 @@ export class FinanceLedgerEngine {
   private escrows: Map<string, EscrowRecord> = new Map();
   private payouts: Map<string, PayoutRecord> = new Map();
   private opResults: Map<string, any> = new Map();
-  private platformCommissionRate: number = 10;
+  private platformCommissionRate: number = DEFAULT_FEE_CONFIG.commissionPercent;
+  private buyerFeePercent: number = DEFAULT_FEE_CONFIG.buyerFeePercent;
+  private smallOrderFee: number = DEFAULT_FEE_CONFIG.smallOrderFee;
+  private smallOrderThreshold: number = DEFAULT_FEE_CONFIG.smallOrderThreshold;
+  private refundClientFeesOnFullRefund: boolean = true;
   private minimumOrderAmount: number = 10;
   private minimumWithdrawalAmount: number = 50;
   private maximumWithdrawalAmount: number = 5000;
@@ -206,11 +218,37 @@ export class FinanceLedgerEngine {
   }
 
   // ----- configuration -----------------------------------------------------
-  public configure(cfg: { commissionPercent?: number; minimumOrderAmount?: number; minimumWithdrawalAmount?: number; maximumWithdrawalAmount?: number }) {
+  public configure(cfg: { commissionPercent?: number; buyerFeePercent?: number; smallOrderFee?: number; smallOrderThreshold?: number; refundClientFeesOnFullRefund?: boolean; minimumOrderAmount?: number; minimumWithdrawalAmount?: number; maximumWithdrawalAmount?: number }) {
     if (cfg.commissionPercent !== undefined) this.setPlatformCommissionRate(cfg.commissionPercent);
+    const next: FeeConfig = {
+      commissionPercent: this.platformCommissionRate,
+      buyerFeePercent: cfg.buyerFeePercent ?? this.buyerFeePercent,
+      smallOrderFee: cfg.smallOrderFee ?? this.smallOrderFee,
+      smallOrderThreshold: cfg.smallOrderThreshold ?? this.smallOrderThreshold
+    };
+    validateFeeConfig(next); // throws before anything is applied
+    this.buyerFeePercent = next.buyerFeePercent;
+    this.smallOrderFee = next.smallOrderFee;
+    this.smallOrderThreshold = next.smallOrderThreshold;
+    if (typeof cfg.refundClientFeesOnFullRefund === 'boolean') this.refundClientFeesOnFullRefund = cfg.refundClientFeesOnFullRefund;
     if (typeof cfg.minimumOrderAmount === 'number' && cfg.minimumOrderAmount >= 0) this.minimumOrderAmount = cfg.minimumOrderAmount;
     if (typeof cfg.minimumWithdrawalAmount === 'number' && cfg.minimumWithdrawalAmount >= 0) this.minimumWithdrawalAmount = cfg.minimumWithdrawalAmount;
     if (typeof cfg.maximumWithdrawalAmount === 'number' && cfg.maximumWithdrawalAmount > 0) this.maximumWithdrawalAmount = cfg.maximumWithdrawalAmount;
+  }
+
+  /** The fee rules the ledger is currently enforcing. */
+  public getFeeConfig(): FeeConfig {
+    return {
+      commissionPercent: this.platformCommissionRate,
+      buyerFeePercent: this.buyerFeePercent,
+      smallOrderFee: this.smallOrderFee,
+      smallOrderThreshold: this.smallOrderThreshold
+    };
+  }
+
+  /** What a client would be charged / a freelancer would receive for a given gig price, under current rules. */
+  public quoteOrder(gigPrice: number) {
+    return calculateOrderFees(gigPrice, this.getFeeConfig());
   }
 
   public setPlatformCommissionRate(rate: number) {
@@ -388,6 +426,7 @@ export class FinanceLedgerEngine {
       ORDER_ESCROW_FUNDED: 'escrow_fund',
       ESCROW_RELEASED_TO_FREELANCER: 'escrow_release',
       ESCROW_REFUNDED_TO_BUYER: 'refund',
+      ESCROW_REFUNDED_WITH_FEES: 'refund',
       PAYOUT_REQUESTED: 'payout_requested',
       PAYOUT_SETTLED: 'payout_processed',
       PAYOUT_CANCELLED: 'payout_cancelled',
@@ -608,8 +647,22 @@ export class FinanceLedgerEngine {
     if (buyer.userRole === 'admin' || seller.userRole === 'admin') throw new Error('Admin wallets cannot take part in orders.');
     if (buyer.status === 'frozen') throw new Error('Buyer wallet is frozen.');
     if (seller.status === 'frozen') throw new Error('Seller wallet is frozen.');
-    if (buyer.availableBalance < amount) {
-      throw new Error(`Insufficient wallet balance. Available $${buyer.availableBalance.toFixed(2)}, required $${amount.toFixed(2)}. Please add funds.`);
+    // `amount` is the gig price. The client pays gig price + service fee + small-order fee;
+    // only the gig price is held in escrow, the two client fees are recognised as platform revenue immediately.
+    const fees = calculateOrderFees(amount, this.getFeeConfig());
+    if (buyer.availableBalance < fees.clientTotal) {
+      throw new Error(`Insufficient wallet balance. Available $${buyer.availableBalance.toFixed(2)}, required $${fees.clientTotal.toFixed(2)} (order $${fees.gigPrice.toFixed(2)} + fees $${(fees.serviceFee + fees.smallOrderFee).toFixed(2)}). Please add funds.`);
+    }
+
+    const fundEntries: Array<{ accountCode: string; debit: number; credit: number; currency: string; description: string; userId?: string; orderId?: string }> = [
+      { accountCode: this.walletAccount(buyer), debit: fees.clientTotal, credit: 0, currency: DEFAULT_CURRENCY, description: 'Debited buyer wallet for order price and client fees', userId: buyer.userId, orderId: params.orderId },
+      { accountCode: '2030', debit: 0, credit: fees.gigPrice, currency: DEFAULT_CURRENCY, description: 'Locked in escrow protection vault', orderId: params.orderId }
+    ];
+    if (fees.serviceFee > 0) {
+      fundEntries.push({ accountCode: '4020', debit: 0, credit: fees.serviceFee, currency: DEFAULT_CURRENCY, description: `${this.buyerFeePercent}% client service fee on Order #${params.orderId}`, orderId: params.orderId });
+    }
+    if (fees.smallOrderFee > 0) {
+      fundEntries.push({ accountCode: '4030', debit: 0, credit: fees.smallOrderFee, currency: DEFAULT_CURRENCY, description: `Small-order fee ($${fees.smallOrderFee.toFixed(2)}, order under $${this.smallOrderThreshold}) on Order #${params.orderId}`, orderId: params.orderId });
     }
 
     const journal = this.postJournal({
@@ -619,10 +672,7 @@ export class FinanceLedgerEngine {
       idempotencyKey: `IDEMP-ORD-FUND-${params.orderId}`,
       actor: params.actor,
       timestamp: params.timestamp,
-      entries: [
-        { accountCode: this.walletAccount(buyer), debit: amount, credit: 0, currency: DEFAULT_CURRENCY, description: 'Debited buyer wallet for order escrow funding', userId: buyer.userId, orderId: params.orderId },
-        { accountCode: '2030', debit: 0, credit: amount, currency: DEFAULT_CURRENCY, description: 'Locked in escrow protection vault', orderId: params.orderId }
-      ]
+      entries: fundEntries
     });
     buyer.fundsOnHold = FinanceLedgerEngine.round(buyer.fundsOnHold + amount);
     this.escrows.set(params.orderId, {
@@ -636,10 +686,14 @@ export class FinanceLedgerEngine {
       releasedGross: 0,
       refundSeq: 0,
       status: 'held',
-      fundedAt: params.timestamp || nowStr()
+      fundedAt: params.timestamp || nowStr(),
+      commissionPercent: this.platformCommissionRate,
+      serviceFee: fees.serviceFee,
+      smallOrderFee: fees.smallOrderFee,
+      feesRefunded: false
     });
-    this.audit({ actor: params.actor, role: 'system', action: 'ESCROW_FUNDS_LOCKED', target: `Order #${params.orderId}`, reason: `Locked $${amount.toFixed(2)} from buyer wallet`, journalId: journal.id });
-    return { journal, escrow: this.escrows.get(params.orderId)! };
+    this.audit({ actor: params.actor, role: 'system', action: 'ESCROW_FUNDS_LOCKED', target: `Order #${params.orderId}`, reason: `Locked $${amount.toFixed(2)} in escrow; client charged $${fees.clientTotal.toFixed(2)} total (service fee $${fees.serviceFee.toFixed(2)}, small-order fee $${fees.smallOrderFee.toFixed(2)})`, journalId: journal.id });
+    return { journal, escrow: this.escrows.get(params.orderId)!, fees };
   }
 
   // Releases everything still held for the order: net to seller, commission to the platform.
@@ -655,17 +709,18 @@ export class FinanceLedgerEngine {
     const buyer = this.wallets.get(esc.buyerId);
 
     const grossCents = Math.round(esc.remaining * 100);
-    const feeCents = Math.round((grossCents * this.platformCommissionRate) / 100);
+    const commissionRate = esc.commissionPercent ?? this.platformCommissionRate; // rate locked in at funding
+    const feeCents = percentOfCents(grossCents, commissionRate);
     const gross = grossCents / 100;
     const platformFee = feeCents / 100;
     const freelancerNet = (grossCents - feeCents) / 100;
 
     const entries: Array<{ accountCode: string; debit: number; credit: number; currency: string; description: string; userId?: string; orderId?: string }> = [
       { accountCode: '2030', debit: gross, credit: 0, currency: DEFAULT_CURRENCY, description: `Released funds held in escrow for Order #${params.orderId}`, orderId: params.orderId },
-      { accountCode: this.walletAccount(seller), debit: 0, credit: freelancerNet, currency: DEFAULT_CURRENCY, description: `Credited net earnings to ${seller.userName} (after ${this.platformCommissionRate}% commission)`, userId: seller.userId, orderId: params.orderId }
+      { accountCode: this.walletAccount(seller), debit: 0, credit: freelancerNet, currency: DEFAULT_CURRENCY, description: `Credited net earnings to ${seller.userName} (after ${commissionRate}% commission)`, userId: seller.userId, orderId: params.orderId }
     ];
     if (platformFee > 0) {
-      entries.push({ accountCode: '4010', debit: 0, credit: platformFee, currency: DEFAULT_CURRENCY, description: `${this.platformCommissionRate}% platform commission on Order #${params.orderId}`, orderId: params.orderId });
+      entries.push({ accountCode: '4010', debit: 0, credit: platformFee, currency: DEFAULT_CURRENCY, description: `${commissionRate}% platform commission on Order #${params.orderId}`, orderId: params.orderId });
     }
     const journal = this.postJournal({
       reference: `ORD-${params.orderId}-RELEASE`,
@@ -685,8 +740,8 @@ export class FinanceLedgerEngine {
   }
 
   // Refunds all (default) or part of what is still held back to the buyer wallet.
-  public refundEscrow(params: { orderId: string; amount?: number; reason: string; actor: string; requestKey?: string }): { journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; remaining: number } {
-    const cached = this.replay<{ journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; remaining: number }>(params.requestKey);
+  public refundEscrow(params: { orderId: string; amount?: number; reason: string; actor: string; requestKey?: string }): { journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; feesRefunded: number; remaining: number } {
+    const cached = this.replay<{ journal: LedgerJournal; buyerWallet: UserWallet; refunded: number; feesRefunded: number; remaining: number }>(params.requestKey);
     if (cached) return cached;
     const why = FinanceLedgerEngine.assertReason(params.reason, 'A refund reason');
     const esc = this.escrows.get(params.orderId);
@@ -697,24 +752,37 @@ export class FinanceLedgerEngine {
     const buyer = this.requireWallet(esc.buyerId);
     if (buyer.status === 'frozen') throw new Error('Buyer wallet is frozen; refund blocked until it is unfrozen.');
 
+    // When the refunds add up to the whole order (nothing was released), the client fees are returned too.
+    // Partial refunds and dispute splits keep the fees, because the order is still partly delivered.
+    const completesFullRefund = FinanceLedgerEngine.round(esc.refundedTotal + amount) === esc.amount && esc.releasedGross === 0;
+    const refundFees = this.refundClientFeesOnFullRefund && completesFullRefund && !esc.feesRefunded;
+    const serviceFeeBack = refundFees ? esc.serviceFee : 0;
+    const smallFeeBack = refundFees ? esc.smallOrderFee : 0;
+    const feesBack = FinanceLedgerEngine.round(serviceFeeBack + smallFeeBack);
+
+    const refundEntries: Array<{ accountCode: string; debit: number; credit: number; currency: string; description: string; userId?: string; orderId?: string }> = [
+      { accountCode: '2030', debit: amount, credit: 0, currency: DEFAULT_CURRENCY, description: `Debited escrow liability for refunded Order #${params.orderId}`, orderId: params.orderId }
+    ];
+    if (serviceFeeBack > 0) refundEntries.push({ accountCode: '4020', debit: serviceFeeBack, credit: 0, currency: DEFAULT_CURRENCY, description: `Reversed client service fee on fully refunded Order #${params.orderId}`, orderId: params.orderId });
+    if (smallFeeBack > 0) refundEntries.push({ accountCode: '4030', debit: smallFeeBack, credit: 0, currency: DEFAULT_CURRENCY, description: `Reversed small-order fee on fully refunded Order #${params.orderId}`, orderId: params.orderId });
+    refundEntries.push({ accountCode: this.walletAccount(buyer), debit: 0, credit: FinanceLedgerEngine.round(amount + feesBack), currency: DEFAULT_CURRENCY, description: `Restored available wallet balance for ${buyer.userName}${feesBack > 0 ? ' (including client fees)' : ''}`, userId: buyer.userId, orderId: params.orderId });
+
     const journal = this.postJournal({
       reference: `ORD-${params.orderId}-REFUND-${esc.refundSeq + 1}`,
       description: `Escrow refund to Buyer for Order #${params.orderId} (${esc.orderTitle}): ${why}`,
-      eventType: 'ESCROW_REFUNDED_TO_BUYER',
+      eventType: feesBack > 0 ? 'ESCROW_REFUNDED_WITH_FEES' : 'ESCROW_REFUNDED_TO_BUYER',
       idempotencyKey: `IDEMP-REF-${params.orderId}-${esc.refundSeq + 1}`,
       actor: params.actor,
-      entries: [
-        { accountCode: '2030', debit: amount, credit: 0, currency: DEFAULT_CURRENCY, description: `Debited escrow liability for refunded Order #${params.orderId}`, orderId: params.orderId },
-        { accountCode: this.walletAccount(buyer), debit: 0, credit: amount, currency: DEFAULT_CURRENCY, description: `Restored available wallet balance for ${buyer.userName}`, userId: buyer.userId, orderId: params.orderId }
-      ]
+      entries: refundEntries
     });
+    if (feesBack > 0) esc.feesRefunded = true;
     buyer.fundsOnHold = FinanceLedgerEngine.round(Math.max(0, buyer.fundsOnHold - amount));
     esc.remaining = FinanceLedgerEngine.round(esc.remaining - amount);
     esc.refundedTotal = FinanceLedgerEngine.round(esc.refundedTotal + amount);
     esc.refundSeq += 1;
     if (esc.remaining === 0) esc.status = 'refunded';
     this.audit({ actor: params.actor, action: 'ESCROW_REFUNDED', target: `Order #${params.orderId}`, reason: why, journalId: journal.id });
-    return this.remember(params.requestKey, { journal, buyerWallet: buyer, refunded: amount, remaining: esc.remaining });
+    return this.remember(params.requestKey, { journal, buyerWallet: buyer, refunded: amount, feesRefunded: feesBack, remaining: esc.remaining });
   }
 
   // Dispute split: refund `refundAmount` to the buyer and release the rest to the seller.
@@ -952,7 +1020,12 @@ export class FinanceLedgerEngine {
       availableFreelancerBalances: FinanceLedgerEngine.round(totalFreelancerLiabilities),
       fundsHeldInEscrow: escrowHeld,
       pendingPayouts: Math.max(0, this.accountNet('2040')),
-      platformRevenue: this.accountNet('4010'),
+      platformRevenue: FinanceLedgerEngine.round(this.accountNet('4010') + this.accountNet('4020') + this.accountNet('4030')),
+      revenueBreakdown: {
+        commission: this.accountNet('4010'),
+        clientServiceFees: this.accountNet('4020'),
+        smallOrderFees: this.accountNet('4030')
+      },
       failedTransactionsCount: this.transactions.filter(t => t.status === 'failed').length,
       unreconciledExceptionsCount: this.exceptions.filter(e => e.status === 'unresolved').length,
       trialBalanceInBalance: trialBalanceDiff === 0,

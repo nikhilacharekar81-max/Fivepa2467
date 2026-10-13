@@ -1963,7 +1963,7 @@ export default function App() {
     }
   };
 
-  const handleCreateOrder = async (title: string, amount: number, sellerId: string) => {
+  const handleCreateOrder = async (title: string, amount: number, sellerId: string, gigId?: string, extraIds?: string[]) => {
     if (!currentUser) {
       setIsLoginModalOpen(true);
       return;
@@ -1980,7 +1980,9 @@ export default function App() {
           title,
           buyerId: impersonatedUser ? impersonatedUser.id : currentUser.id,
           sellerId,
-          amount,
+          amount, // ignored by the server for gig orders: it prices the order from gigId + extraIds
+          gigId,
+          extraIds,
           dueDate: new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0]
         })
       });
@@ -2363,8 +2365,12 @@ export default function App() {
         orders={orders}
         proposals={proposals}
         platformFee={platformFee}
+        clientServiceFee={clientServiceFee}
+        smallOrderFeeThreshold={smallOrderFeeThreshold}
+        smallOrderFeeAmount={smallOrderFeeAmount}
+        escrowProtectionDays={escrowProtectionDays}
         navigate={navigate}
-        fetchAllAdminData={fetchAllAdminData}
+        fetchAllAdminData={refresh}
         getDeviceId={getDeviceId}
       />
     );
