@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { UserAccount, Gig, Project, Proposal, Order, Dispute, Refund, Payout, Category, Review, SupportTicket, AuditLog, UserEmail } from '../types';
+import { UserAccount, Gig, Project, Proposal, Order, Dispute, Refund, Payout, Category, Review, SupportTicket, AuditLog, Message } from '../types';
 import * as DatabaseService from '../services/DatabaseService';
 import { initialUsers, initialGigs, initialProjects, initialOrders } from '../data/mockData';
 
@@ -10,6 +10,7 @@ export const useAppData = () => {
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [orders, setOrders] = useState<Order[]>(initialOrders);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -18,10 +19,20 @@ export const useAppData = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   
   const [platformFee, setPlatformFee] = useState<number>(20);
+  const [clientServiceFee, setClientServiceFee] = useState<number>(5.5);
+  const [smallOrderFeeThreshold, setSmallOrderFeeThreshold] = useState<number>(200);
+  const [smallOrderFeeAmount, setSmallOrderFeeAmount] = useState<number>(3.50);
   const [escrowProtectionDays, setEscrowProtectionDays] = useState<number>(14);
   
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (DatabaseService.Users && DatabaseService.Users.length > 0) setUsers(DatabaseService.Users);
+    if (DatabaseService.Gigs && DatabaseService.Gigs.length > 0) setGigs(DatabaseService.Gigs);
+    if (DatabaseService.Projects) setProjects(DatabaseService.Projects);
+    if (DatabaseService.Orders) setOrders(DatabaseService.Orders);
+  }, []);
 
   const getDeviceId = (): string => {
     let devId = localStorage.getItem('workperhour_device_id');
@@ -79,7 +90,7 @@ export const useAppData = () => {
       const ords = oRes.ok ? await safeJson(oRes, []) : [];
       const disputesData = dRes.ok ? await safeJson(dRes, []) : [];
       const refundsData = rRes.ok ? await safeJson(rRes, []) : [];
-      const payoutsData = payRes.ok ? await safeJson(payoutsData, []) : [];
+      const payoutsData = payRes.ok ? await safeJson(payRes, []) : [];
       const categoriesData = cRes.ok ? await safeJson(cRes, []) : [];
       const reviewsData = revRes.ok ? await safeJson(revRes, []) : [];
       const supportTicketsData = sRes.ok ? await safeJson(sRes, []) : [];
@@ -122,6 +133,7 @@ export const useAppData = () => {
     proposals, setProposals,
     orders, setOrders,
     reviews, setReviews,
+    messages, setMessages,
     disputes, setDisputes,
     refunds, setRefunds,
     payouts, setPayouts,
@@ -129,6 +141,9 @@ export const useAppData = () => {
     supportTickets, setSupportTickets,
     auditLogs, setAuditLogs,
     platformFee, setPlatformFee,
+    clientServiceFee, setClientServiceFee,
+    smallOrderFeeThreshold, setSmallOrderFeeThreshold,
+    smallOrderFeeAmount, setSmallOrderFeeAmount,
     escrowProtectionDays, setEscrowProtectionDays,
     isLoading,
     error,

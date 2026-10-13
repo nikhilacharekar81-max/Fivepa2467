@@ -53,7 +53,7 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
         id: r.id,
         orderId: r.orderId,
         reviewerName: r.reviewerName ?? r.buyerName ?? 'Anonymous',
-        reviewerAvatar: r.reviewerAvatar ?? r.avatar,
+        reviewerAvatar: r.reviewerAvatar ?? r.avatar ?? '',
         targetUserId: r.targetUserId ?? profileUser.id,
         rating: r.rating ?? 0,
         comment: r.comment ?? r.review ?? '',

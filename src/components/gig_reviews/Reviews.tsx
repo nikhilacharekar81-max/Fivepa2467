@@ -21,7 +21,7 @@ export const Reviews: React.FC<ReviewsProps> = ({
   const initialGigReviews = dataset.filter(r => {
     if (currentGig) {
         return r.targetUserId === currentGig.freelancerId || 
-               (r.orderTitle && r.orderTitle.toLowerCase().includes(currentGig.title.toLowerCase().substring(0, 15)));
+               (r.orderTitle && currentGig.title && r.orderTitle.toLowerCase().includes(currentGig.title.toLowerCase().substring(0, 15)));
     } else if (targetUser) {
         return r.targetUserId === targetUser.id;
     }
@@ -29,7 +29,7 @@ export const Reviews: React.FC<ReviewsProps> = ({
   });
 
   // Fallback realistic reviews if dataset doesn't have specific ones for this gig
-  const fallbackReviews: Review[] = [
+  const fallbackReviews: Review[] = currentGig ? [
     {
       id: `rev_fb1_${currentGig.id}`,
       targetUserId: currentGig.freelancerId,
@@ -66,7 +66,7 @@ export const Reviews: React.FC<ReviewsProps> = ({
       createdAt: '2 weeks ago',
       orderTitle: currentGig.title
     }
-  ];
+  ] : [];
 
   const filteredReviews = initialGigReviews.length > 0 ? initialGigReviews : fallbackReviews;
 

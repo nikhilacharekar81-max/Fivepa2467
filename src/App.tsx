@@ -131,28 +131,29 @@ export default function App() {
     alert(updated.isAvailableNow ? 'You are now marked as Available Now! Clients will see your green status.' : 'You are now marked as Unavailable.');
   };
 
-  // Data states
-  const [usersList, setUsersList] = useState<UserAccount[]>(initialUsers);
-  const [gigs, setGigs] = useState<Gig[]>(initialGigs);
-  const [projects, setProjects] = useState<Project[]>(initialProjects);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [orders, setOrders] = useState<Order[]>(initialOrders);
-  
-  useEffect(() => {
-    if (DatabaseService.Users && DatabaseService.Users.length > 0) {
-      setUsersList(DatabaseService.Users);
-    }
-    if (DatabaseService.Gigs && DatabaseService.Gigs.length > 0) {
-      setGigs(DatabaseService.Gigs);
-    }
-  }, []);
+  // Custom Data Hook
+  const {
+    users: usersList, setUsers: setUsersList,
+    gigs, setGigs,
+    projects, setProjects,
+    proposals, setProposals,
+    orders, setOrders,
+    reviews: appReviews, setReviews: setAppReviews,
+    messages, setMessages,
+    disputes, setDisputes,
+    refunds, setRefunds,
+    payouts, setPayouts,
+    categories, setCategories,
+    supportTickets, setSupportTickets,
+    auditLogs, setAuditLogs,
+    platformFee, setPlatformFee,
+    clientServiceFee, setClientServiceFee,
+    smallOrderFeeThreshold, setSmallOrderFeeThreshold,
+    smallOrderFeeAmount, setSmallOrderFeeAmount,
+    escrowProtectionDays, setEscrowProtectionDays,
+    refresh
+  } = useAppData();
 
-  const [disputes, setDisputes] = useState<Dispute[]>([]);
-  const [refunds, setRefunds] = useState<Refund[]>([]);
-  const [payouts, setPayouts] = useState<Payout[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [supportTickets, setSupportTickets] = useState<SupportTicket[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -185,7 +186,6 @@ export default function App() {
 
   // Active chat order selection
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessageText, setNewMessageText] = useState('');
 
   const { reviews, setReviews, handleReleaseEscrow } = useEscrowReviews({
@@ -336,8 +336,6 @@ export default function App() {
   };
 
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
-  const [platformFee, setPlatformFee] = useState<number>(20);
-  const [escrowProtectionDays, setEscrowProtectionDays] = useState<number>(14);
   const [ticketReplyText, setTicketReplyText] = useState<string>('');
   const [disputeNotesText, setDisputeNotesText] = useState<string>('');
 
@@ -968,7 +966,7 @@ export default function App() {
       if (refundsData.length > 0) setRefunds(refundsData);
       if (payoutsData.length > 0) setPayouts(payoutsData);
       if (categoriesData.length > 0) setCategories(categoriesData);
-      if (reviewsData.length > 0) setReviews(reviewsData);
+      if (reviewsData.length > 0) setAppReviews(reviewsData);
       if (supportTicketsData.length > 0) setSupportTickets(supportTicketsData);
       if (auditLogsData.length > 0) setAuditLogs(auditLogsData);
       if (settingsData && settingsData.freelancerCommissionRate !== undefined) {
@@ -3692,7 +3690,7 @@ export default function App() {
           <GigDetailView
             currentGig={currentGig}
             gigs={gigs}
-            reviews={reviews}
+            reviews={appReviews}
             navigate={navigate}
             handleContactSeller={handleContactSeller}
             handleCreateOrder={handleCreateOrder}
@@ -4634,7 +4632,7 @@ export default function App() {
           profileUser={profileUser}
           currentUser={currentUser}
           gigs={gigs}
-          reviews={reviews}
+          reviews={appReviews}
           onNavigate={navigate}
           onFeatureGig={handleFeatureUserGig}
           onContact={() => handleContactSeller(profileUser.id, profileUser.name, 'General Inquiry')}

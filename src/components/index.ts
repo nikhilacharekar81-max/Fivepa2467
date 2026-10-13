@@ -8,7 +8,7 @@ export * from './modals';
 export * from './admin_modules';
 export * from './admin_dashboard';
 export * from './ui';
-export * from './reviews';
+
 
 // Direct standalone components
 export { FreelancerProfileView } from './FreelancerProfileView';
@@ -18,5 +18,5 @@ export { SiteFeeSettingsModule } from './SiteFeeSettingsModule';
 export { PaymentsModule } from './PaymentsModule';
 export { UserWalletsLedgerModule } from './UserWalletsLedgerModule';
 export { AdminOrdersManager } from './AdminOrdersManager';
-export { Login } from './Login';
+
 export { PrivateRoute } from './PrivateRoute';
