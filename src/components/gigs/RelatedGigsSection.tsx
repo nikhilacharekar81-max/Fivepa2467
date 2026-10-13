@@ -2,6 +2,7 @@ import React from 'react';
 import { Star, Sparkles, ArrowRight, ShieldCheck } from 'lucide-react';
 import { Gig } from '../../types';
 import { SEED_GIGS } from '../../data/completeSeedDataset';
+import { slugify } from '../../utils/slugify';
 
 interface RelatedGigsSectionProps {
   currentGig: Gig;
@@ -38,14 +39,6 @@ export const RelatedGigsSection: React.FC<RelatedGigsSectionProps> = ({
 
   if (itemsToDisplay.length === 0) return null;
 
-  const slugify = (text: string) => {
-    return text
-      .toLowerCase()
-      .trim()
-      .replace(/[^\w\s-]/g, '')
-      .replace(/[\s_-]+/g, '-')
-      .replace(/^-+|-+$/g, '');
-  };
 
   const getGigUrl = (gig: Gig) => {
     const uname = (gig.freelancerUsername || slugify(gig.freelancerName || 'freelancer')).toLowerCase();

@@ -80,7 +80,7 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
 
       setIsSaving(false);
       setSavedSuccess(true);
-      if (onSettingsSaved) onSettingsSaved({ takeRate, buyerFee, escrowHoldDays });
+      if (onSettingsSaved) onSettingsSaved({ takeRate, clientServiceFee, escrowHoldDays });
       setTimeout(() => setSavedSuccess(false), 3500);
     } catch (err) {
       console.error(err);
