@@ -6,7 +6,7 @@ import {
   Settings, Users, Layers, TrendingUp, AlertTriangle, Eye, Trash2, CheckCircle, BarChart3,
   LayoutDashboard, ShieldAlert, Sliders, LogOut, FileText, Activity, Wallet, Scale, CornerDownLeft, ShoppingBag, CreditCard,
   HelpCircle, Flag, MessageCircle, FileCode, KeyRound, Shield, ExternalLink,
-  Heart, Mail, Bell, Grid, List
+  Heart, Mail, Bell, Grid, List, Pencil
 } from 'lucide-react';
 import { useLocation, useNavigate, Routes, Route } from 'react-router-dom';
 import { UserWalletsLedgerModule } from './components/UserWalletsLedgerModule';
@@ -14,9 +14,13 @@ import { AdminOrdersManager } from './components/AdminOrdersManager';
 import { SiteFeeSettingsModule } from './components/SiteFeeSettingsModule';
 import { PaymentsModule } from './components/PaymentsModule';
 import { FreelancerProfileView } from './components/FreelancerProfileView';
-import { InspectUserModal, EditUserProfileModal } from './components/profile';
+import { InspectUserModal, EditUserProfileModal, EditProfilePage } from './components/profile';
+import { SettingsPage } from './components/SettingsPage';
+import { HeaderCategoriesNav, PPH_CATEGORIES } from './components/HeaderCategoriesNav';
 import { ViewingGigModal, EditGigModal, DeleteGigModal, CreateGigView } from './components/gigs';
+import { FreelancerSearchView, ProjectSearchView, ProjectDetailView } from './components/marketplace';
 import * as DatabaseService from './services/DatabaseService';
+import { initialUsers, initialGigs, initialProjects, initialOrders } from './data/mockData';
 import {
   WorkstreamSidebar,
   WorkstreamList,
@@ -26,7 +30,40 @@ import {
   WorkstreamFilter,
   SharedFileItem
 } from './components/workstream';
-import { WishlistModal, EmailNotificationsModal, SupportModal, UserSwitchModal } from './components/modals';
+import { 
+  WishlistModal, 
+  EmailNotificationsModal, 
+  SupportModal, 
+  UserSwitchModal,
+  LoginModal,
+  SignupModal,
+  VerifyModal,
+  ForgotPasswordModal
+} from './components/modals';
+
+import {
+  AdminOverviewModule,
+  AdminUsersModule,
+  AdminProjectsModule,
+  AdminGigsModule,
+  AdminOrdersModule,
+  AdminCategoriesModule,
+  AdminProposalsModule,
+  AdminContractsModule,
+  AdminPaymentsModule,
+  AdminWalletModule,
+  AdminEscrowModule,
+  AdminDisputesModule,
+  AdminRefundsModule,
+  AdminPayoutsModule,
+  AdminReviewsModule,
+  AdminMessagesModule,
+  AdminReportsModule,
+  AdminSupportModule,
+  AdminCmsModule,
+  AdminSettingsModule,
+  AdminActivityModule
+} from './components/admin_modules';
 
 import { 
   GigExtra, 
@@ -49,19 +86,29 @@ import { useEscrowReviews } from './useEscrowReviews';
 
 const CATEGORY_SLUGS: Record<string, string> = {
   'All': 'all',
-  'Development & IT': 'development-it',
-  'AI & Data': 'ai-data',
-  'Design & Creative': 'design-creative',
-  'Mobile Apps': 'mobile-apps'
+  'Development & IT': 'technology-programming',
+  'AI & Data': 'ai-services',
+  'Design & Creative': 'design',
+  'Mobile Apps': 'technology-programming'
 };
 
 const SLUG_TO_CATEGORY: Record<string, string> = {
   'all': 'All',
-  'development-it': 'Development & IT',
-  'ai-data': 'AI & Data',
-  'design-creative': 'Design & Creative',
-  'mobile-apps': 'Mobile Apps'
+  'development-it': 'Technology & Programming',
+  'ai-data': 'AI Services',
+  'design-creative': 'Design',
+  'mobile-apps': 'Technology & Programming'
 };
+
+// Populate map with all 10 PeoplePerHour main categories and ~70 subcategories
+PPH_CATEGORIES.forEach(cat => {
+  CATEGORY_SLUGS[cat.name] = cat.slug;
+  SLUG_TO_CATEGORY[cat.slug] = cat.name;
+  cat.subcategories.forEach(sub => {
+    CATEGORY_SLUGS[sub.name] = sub.slug;
+    SLUG_TO_CATEGORY[sub.slug] = sub.name;
+  });
+});
 
 export default function App() {
   // Routing
@@ -99,15 +146,19 @@ export default function App() {
   };
 
   // Data states
-  const [usersList, setUsersList] = useState<UserAccount[]>([]);
-  const [gigs, setGigs] = useState<Gig[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [usersList, setUsersList] = useState<UserAccount[]>(initialUsers);
+  const [gigs, setGigs] = useState<Gig[]>(initialGigs);
+  const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [proposals, setProposals] = useState<Proposal[]>([]);
-  const [orders, setOrders] = useState<Order[]>([]);
+  const [orders, setOrders] = useState<Order[]>(initialOrders);
   
   useEffect(() => {
-    setUsersList(DatabaseService.Users);
-    setGigs(DatabaseService.Gigs);
+    if (DatabaseService.Users && DatabaseService.Users.length > 0) {
+      setUsersList(DatabaseService.Users);
+    }
+    if (DatabaseService.Gigs && DatabaseService.Gigs.length > 0) {
+      setGigs(DatabaseService.Gigs);
+    }
   }, []);
 
   const [disputes, setDisputes] = useState<Dispute[]>([]);
@@ -332,6 +383,20 @@ export default function App() {
   const [gigViewMode, setGigViewMode] = useState<'grid' | 'list'>('grid');
   const [isPuppetVideoPlaying, setIsPuppetVideoPlaying] = useState(false);
   const [isHeaderSearchDropdownOpen, setIsHeaderSearchDropdownOpen] = useState(false);
+  const [isHeaderCategoriesDropdownOpen, setIsHeaderCategoriesDropdownOpen] = useState(false);
+  const headerCategoriesTimeoutRef = useRef<any>(null);
+
+  const handleHeaderCategoriesMouseEnter = () => {
+    if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+    setIsHeaderCategoriesDropdownOpen(true);
+  };
+
+  const handleHeaderCategoriesMouseLeave = () => {
+    if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+    headerCategoriesTimeoutRef.current = setTimeout(() => {
+      setIsHeaderCategoriesDropdownOpen(false);
+    }, 250);
+  };
 
   const handleToggleLike = (gigId: string, e?: React.MouseEvent) => {
     if (e) {
@@ -553,7 +618,12 @@ export default function App() {
   };
 
   // Reserved top-level route segments
-  const reservedRoutes = ['gigs', 'projects', 'categories', 'orders', 'messages', 'create-gig', 'post-project', 'admin', 'profile', 'payments', 'freelancers', 'freelance-activity'];
+  const reservedRoutes = [
+    'gigs', 'projects', 'search-projects', 'project-search', 'freelance-jobs', 'categories', 'orders', 'messages', 'create-gig', 'post-project', 
+    'admin', 'profile', 'payments', 'freelancers', 'search-freelancers', 'freelancer-search', 'freelance-activity', 'support', 
+    'settings', 'login', 'signup', 'forgot-password', 'verify', 'wishlist', 'notifications', 'switch-user',
+    'edit-profile', 'freelancer'
+  ];
 
   // Route matching
   const pathParts = path.split('/').filter(Boolean);
@@ -562,7 +632,8 @@ export default function App() {
   const categorySlug = isCategoryRoute ? path.replace('/categories/', '') : null;
   const currentCategory = categorySlug ? (SLUG_TO_CATEGORY[categorySlug] || 'All') : 'All';
 
-  const isProjectsList = path === '/projects';
+  const isProjectsList = path === '/projects' || path.startsWith('/projects?') || path === '/search-projects' || path === '/project-search' || path === '/freelance-jobs';
+  const isFreelancersPage = path === '/freelancers' || path.startsWith('/freelancers') || path === '/search-freelancers' || path === '/freelancer-search';
   const isOrders = path === '/orders';
   const isMessages = path.startsWith('/messages');
   const messageOrderId = path.startsWith('/messages/') ? path.split('/')[2] : null;
@@ -570,6 +641,16 @@ export default function App() {
   const isPostProject = path === '/post-project';
   const isPayments = path.startsWith('/payments');
   const isAdmin = path === '/admin';
+  const isSupport = path === '/support';
+  const isSettings = path === '/settings';
+  const isEditProfile = path === '/edit-profile' || path === '/freelancer/edit' || path === '/profile/edit' || (path.startsWith('/freelancer/') && path.endsWith('/edit')) || (path.startsWith('/profile/') && path.endsWith('/edit'));
+  const isLoginRoute = path === '/login';
+  const isSignupRoute = path === '/signup';
+  const isForgotPasswordRoute = path === '/forgot-password';
+  const isVerifyRoute = path === '/verify';
+  const isWishlistRoute = path === '/wishlist';
+  const isNotificationsRoute = path === '/notifications';
+  const isSwitchUserRoute = path === '/switch-user';
 
   // Gig detail route check: Fiverr style /:username/:slug OR /gigs/:id
   let currentGig: Gig | undefined = undefined;
@@ -619,7 +700,7 @@ export default function App() {
     ? (usersList.find(u => slugify(u.name) === profileUserUsername || u.id === profileUserUsername) || (impersonatedUser || currentUser || usersList[0]))
     : null;
 
-  const isGigsList = (path === '/gigs' || path === '/' || isCategoryRoute) && !isGigDetail && !isProfilePage;
+  const isGigsList = (path === '/gigs' || path === '/' || isCategoryRoute) && !isGigDetail && !isProfilePage && !isEditProfile && !isSettings;
 
   // Sync pathname route
   useEffect(() => {
@@ -787,14 +868,15 @@ export default function App() {
       if (isUserDropdownOpen) setIsUserDropdownOpen(false);
       if (isWorkstreamsDropdownOpen) setIsWorkstreamsDropdownOpen(false);
       if (isHeaderSearchDropdownOpen) setIsHeaderSearchDropdownOpen(false);
+      if (isHeaderCategoriesDropdownOpen) setIsHeaderCategoriesDropdownOpen(false);
     };
-    if (isUserDropdownOpen || isWorkstreamsDropdownOpen || isHeaderSearchDropdownOpen) {
+    if (isUserDropdownOpen || isWorkstreamsDropdownOpen || isHeaderSearchDropdownOpen || isHeaderCategoriesDropdownOpen) {
       document.addEventListener('click', handleOutsideClick);
     }
     return () => {
       document.removeEventListener('click', handleOutsideClick);
     };
-  }, [isUserDropdownOpen, isWorkstreamsDropdownOpen, isHeaderSearchDropdownOpen]);
+  }, [isUserDropdownOpen, isWorkstreamsDropdownOpen, isHeaderSearchDropdownOpen, isHeaderCategoriesDropdownOpen]);
 
   const safeJson = async (res: Response, fallback: any = []) => {
     if (!res.ok) return fallback;
@@ -1694,8 +1776,8 @@ export default function App() {
     }
   };
 
-  const handleLoginSubmit = async (e: React.FormEvent | React.MouseEvent) => {
-    e.preventDefault();
+  const handleLoginSubmit = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e && typeof e.preventDefault === 'function') e.preventDefault();
     try {
       let deviceId = 'unknown';
       try {
@@ -2066,6 +2148,32 @@ export default function App() {
     }
   };
 
+  const handleSubmitProposalDirect = async (projectId: string, bidAmount: number, deliveryDays: number, coverLetter: string) => {
+    if (!currentUser) {
+      setIsLoginModalOpen(true);
+      return;
+    }
+    try {
+      await fetch('/api/proposals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          freelancerId: impersonatedUser ? impersonatedUser.id : currentUser.id,
+          freelancerName: impersonatedUser ? impersonatedUser.name : currentUser.name,
+          freelancerAvatar: impersonatedUser ? impersonatedUser.avatar : currentUser.avatar,
+          freelancerTitle: currentUser.title || 'Freelance Specialist',
+          coverLetter,
+          bidAmount,
+          deliveryDays
+        })
+      });
+      fetchAllAdminData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleFeatureUserGig = async (gigId: string) => {
     setGigs(prev => {
       const exists = prev.some(g => g.id === gigId);
@@ -2183,14 +2291,77 @@ export default function App() {
     }
   };
 
-  // Project proposal route check: /projects/:id
-  const isProjectDetail = path.startsWith('/projects/') && path.length > 10;
-  const projIdParam = isProjectDetail ? path.replace('/projects/', '') : null;
-  const currentProject = projects.find(p => p.id === projIdParam);
+  // Project proposal & detail route check: /projects/:id OR /project/:slug OR /freelance-jobs/...
+  const isProjectDetail = (
+    (path.startsWith('/projects/') && path.length > 10) ||
+    (path.startsWith('/project/') && path.length > 9) ||
+    (path.startsWith('/freelance-jobs/') && path.length > 16)
+  ) && !path.endsWith('/projects') && !path.endsWith('/freelance-jobs');
+
+  const projIdParam = isProjectDetail ? path.split('/').pop() : null;
+
+  const currentProject = isProjectDetail
+    ? (projects.find(p => {
+        if (!projIdParam) return false;
+        const lower = projIdParam.toLowerCase();
+        const pId = p.id.toLowerCase();
+        const pSlug = (p.slug || slugify(p.title)).toLowerCase();
+        return pId === lower || 
+               pSlug === lower || 
+               lower.includes(pId) || 
+               lower.endsWith(pId) || 
+               lower.includes(pSlug) || 
+               pSlug.includes(lower);
+      }) || projects[0])
+    : undefined;
 
   // Filtered Gigs computation
   const filteredGigs = gigs.filter(g => {
-    const matchesCat = currentCategory === 'All' || g.category === currentCategory;
+    const matchesCat = (() => {
+      if (currentCategory === 'All') return true;
+
+      const targetLower = currentCategory.toLowerCase();
+      const targetNorm = targetLower.replace(/[^\w]/g, '');
+      const slugNorm = (categorySlug || '').toLowerCase().replace(/[^\w]/g, '');
+
+      const catLower = (g.category || '').toLowerCase();
+      const catNorm = catLower.replace(/[^\w]/g, '');
+
+      const subLower = (g.subcategory || '').toLowerCase();
+      const subNorm = subLower.replace(/[^\w]/g, '');
+
+      // Direct match on category or subcategory
+      if (catLower === targetLower || subLower === targetLower) return true;
+      if (targetNorm.length > 2 && (catNorm === targetNorm || subNorm === targetNorm)) return true;
+      if (slugNorm.length > 2 && (catNorm.includes(slugNorm) || subNorm.includes(slugNorm) || slugNorm.includes(catNorm) || slugNorm.includes(subNorm))) return true;
+
+      // Parent category match (if currentCategory is a parent category, match any gig whose subcategory belongs to it)
+      const parentCat = PPH_CATEGORIES.find(c => c.name.toLowerCase() === targetLower || c.slug === categorySlug);
+      if (parentCat) {
+        if (catLower === parentCat.name.toLowerCase()) return true;
+        const isSubInParent = parentCat.subcategories.some(s => s.name.toLowerCase() === subLower || subLower.includes(s.name.toLowerCase()));
+        if (isSubInParent) return true;
+      }
+
+      // Aliases match
+      if ((targetLower.includes('technology') || targetLower.includes('development') || targetLower.includes('programming')) &&
+          (catLower.includes('technology') || catLower.includes('development') || catLower.includes('programming'))) return true;
+
+      if ((targetLower.includes('ai') || targetLower.includes('data')) &&
+          (catLower.includes('ai') || catLower.includes('data'))) return true;
+
+      if ((targetLower.includes('design') || targetLower.includes('creative')) &&
+          (catLower.includes('design') || catLower.includes('creative'))) return true;
+
+      // Search match in title or description
+      if (g.title?.toLowerCase().includes(targetLower) || g.description?.toLowerCase().includes(targetLower)) return true;
+      if (targetNorm.length > 2 && (
+        g.title?.toLowerCase().replace(/[^\w]/g, '').includes(targetNorm) ||
+        g.description?.toLowerCase().replace(/[^\w]/g, '').includes(targetNorm)
+      )) return true;
+
+      return false;
+    })();
     const matchesSearch = g.title.toLowerCase().includes(searchQuery.toLowerCase()) || g.description.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesServiceOpt = serviceOptionFilter === 'All' || g.category === serviceOptionFilter;
     const matchesSellerLevel = sellerLevelFilter === 'All' || (g.freelancerLevel && g.freelancerLevel.includes(sellerLevelFilter));
@@ -2525,2491 +2696,118 @@ export default function App() {
 
           {/* MODULE 1: DASHBOARD OVERVIEW */}
           {adminTab === 'overview' && (
-            <div className="space-y-8">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-fiverr-muted uppercase tracking-wider">Escrow Balance</span>
-                    <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div className="text-2xl font-bold text-fiverr-dark">
-                    ${orders.reduce((sum, o) => sum + o.amount, 0).toLocaleString()}
-                  </div>
-                  <span className="text-[11px] text-emerald-600 font-semibold mt-1 block">Mandatory 14-Day Protection Active</span>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-fiverr-muted uppercase tracking-wider">Active Users</span>
-                    <Users className="w-5 h-5 text-indigo-600" />
-                  </div>
-                  <div className="text-2xl font-bold text-fiverr-dark">{usersList.length}</div>
-                  <span className="text-[11px] text-fiverr-muted mt-1 block">Verified Buyers & Sellers</span>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-fiverr-muted uppercase tracking-wider">Disputes Open</span>
-                    <AlertTriangle className="w-5 h-5 text-red-600" />
-                  </div>
-                  <div className="text-2xl font-bold text-red-600">{disputes.length}</div>
-                  <span className="text-[11px] text-red-600 font-semibold mt-1 block">Requires Resolution</span>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xs font-semibold text-fiverr-muted uppercase tracking-wider">Platform Take Revenue</span>
-                    <TrendingUp className="w-5 h-5 text-emerald-600" />
-                  </div>
-                  <div className="text-2xl font-bold text-fiverr-dark">
-                    ${(orders.reduce((sum, o) => sum + o.amount, 0) * (platformFee / 100)).toFixed(0)}
-                  </div>
-                  <span className="text-[11px] text-emerald-600 font-semibold mt-1 block">{platformFee}% Platform Take Rate</span>
-                </div>
-              </div>
-
-              {/* Escrow Ledger & System Gateways */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                  <h3 className="text-base font-bold text-fiverr-dark mb-4">Active Escrow Protection Orders</h3>
-                  <div className="space-y-3">
-                    {orders.length === 0 ? (
-                      <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-400">
-                        No active escrow protection orders. Escrow balance is $0.
-                      </div>
-                    ) : (
-                      orders.map(ord => (
-                        <div key={ord.id} className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-200">
-                          <div>
-                            <span className="text-xs font-bold text-fiverr-dark block mb-0.5">{ord.title}</span>
-                            <span className="text-[11px] text-fiverr-muted">Order #{ord.id} · Due {ord.dueDate}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-sm font-bold text-fiverr-dark block">${ord.amount}</span>
-                            <span className="text-[10px] uppercase font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                              14-Day Escrow Protection
-                            </span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                  <h3 className="text-base font-bold text-fiverr-dark mb-4">System Alerts & Support Desk</h3>
-                  <div className="space-y-3">
-                    {supportTickets.length === 0 ? (
-                      <div className="p-8 text-center rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-400">
-                        No open support tickets or system alerts. All queues clear (0 tickets).
-                      </div>
-                    ) : (
-                      supportTickets.map(ticket => (
-                        <div key={ticket.id} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
-                          <div>
-                            <span className="text-xs font-bold text-fiverr-dark block mb-0.5">{ticket.subject}</span>
-                            <span className="text-[11px] text-fiverr-muted">Ticket #{ticket.id} by {ticket.userName}</span>
-                          </div>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-1 rounded uppercase border border-emerald-200">
-                            {ticket.priority} Priority
-                          </span>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
+            <AdminOverviewModule 
+              allUsers={usersList} 
+              allProjects={projects} 
+              allGigs={gigs} 
+              allOrders={orders} 
+              escrowAccounts={orders} 
+              platformBalance={orders.reduce((sum, o) => sum + o.amount, 0) * (platformFee / 100)} 
+            />
           )}
 
-          {/* MODULE 2: USER MANAGEMENT & IMPERSONATION */}
+          {/* MODULE 2: USER MANAGEMENT */}
           {adminTab === 'users' && (
-            <div className="space-y-6">
-              {/* Top User Management Bar */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-base font-bold text-fiverr-dark flex items-center gap-2">
-                      <Users className="w-5 h-5 text-emerald-600" />
-                      <span>User Account Management & Verification</span>
-                    </h3>
-                    <p className="text-xs text-fiverr-muted mt-0.5">Search, filter, view complete activity history, edit profiles, toggle verification, and restrict user accounts.</p>
-                  </div>
-                  <span className="text-xs text-fiverr-dark font-mono bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 shrink-0 font-medium">
-                    {usersList.length} Total Users Registered
-                  </span>
-                </div>
-
-                {/* Filters Row */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Search Input */}
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                    <input 
-                      type="text" 
-                      placeholder="Search name, email, skills, title..." 
-                      value={userSearchQuery}
-                      onChange={(e) => setUserSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:bg-white focus:border-emerald-500"
-                    />
-                  </div>
-
-                  {/* Status Filter */}
-                  <div>
-                    <select 
-                      value={userStatusFilter}
-                      onChange={(e) => setUserStatusFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                    >
-                      <option value="all">All Account Statuses</option>
-                      <option value="active">Active</option>
-                      <option value="suspended">Suspended</option>
-                      <option value="restricted">Restricted</option>
-                    </select>
-                  </div>
-
-                  {/* Verification Filter */}
-                  <div>
-                    <select 
-                      value={userVerifiedFilter}
-                      onChange={(e) => setUserVerifiedFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                    >
-                      <option value="all">All Verification Statuses</option>
-                      <option value="verified">Verified Only ✓</option>
-                      <option value="unverified">Unverified Only</option>
-                    </select>
-                  </div>
-
-                  {/* Role Filter */}
-                  <div>
-                    <select 
-                      value={userRoleFilter}
-                      onChange={(e) => setUserRoleFilter(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                    >
-                      <option value="all">All Roles</option>
-                      <option value="user">Marketplace User</option>
-                      <option value="super_admin">Super Admin</option>
-                      <option value="moderator">Moderator</option>
-                      <option value="support">Support Staff</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Users Table */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-fiverr-muted border-b border-slate-200">
-                        <th className="p-4">User Details</th>
-                        <th className="p-4">Role & Title</th>
-                        <th className="p-4">Wallet / Hourly</th>
-                        <th className="p-4">Verification</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs text-fiverr-dark">
-                      {usersList.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="text-center py-12 text-xs text-slate-400">
-                            No user accounts in database. Zero accounts currently registered.
-                          </td>
-                        </tr>
-                      ) : usersList
-                        .filter(u => {
-                          const q = userSearchQuery.toLowerCase();
-                          const matchesSearch = !q || 
-                            u.name.toLowerCase().includes(q) || 
-                            u.email.toLowerCase().includes(q) || 
-                            (u.title && u.title.toLowerCase().includes(q)) ||
-                            (u.skills && u.skills.some(s => s.toLowerCase().includes(q)));
-                          const matchesStatus = userStatusFilter === 'all' || u.status === userStatusFilter;
-                          const matchesRole = userRoleFilter === 'all' || u.role === userRoleFilter;
-                          const matchesVerified = userVerifiedFilter === 'all' || 
-                            (userVerifiedFilter === 'verified' && u.verified) || 
-                            (userVerifiedFilter === 'unverified' && !u.verified);
-                          return matchesSearch && matchesStatus && matchesRole && matchesVerified;
-                        })
-                        .map(u => (
-                          <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="p-4">
-                              <div className="flex items-center gap-3">
-                                <img src={u.avatar} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-200" />
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-fiverr-dark text-sm">{u.name}</span>
-                                    {u.verified && (
-                                      <span className="bg-emerald-50 text-emerald-600 p-0.5 rounded-full border border-emerald-200" title="Verified User">
-                                        <CheckCircle2 className="w-3.5 h-3.5" />
-                                      </span>
-                                    )}
-                                  </div>
-                                  <span className="text-[11px] text-fiverr-muted">{u.email}</span>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase block w-max mb-1 ${
-                                u.role === 'super_admin' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
-                                u.role === 'moderator' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                                u.role === 'support' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                              }`}>
-                                {u.role.replace('_', ' ')}
-                              </span>
-                              <span className="text-[11px] text-fiverr-muted truncate max-w-[150px] block">{u.title || 'Marketplace Member'}</span>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-bold text-fiverr-dark block">${u.walletBalance.toLocaleString()}</span>
-                              <span className="text-[11px] text-fiverr-muted">${u.hourlyRate || 0}/hr</span>
-                            </td>
-                            <td className="p-4">
-                              <button 
-                                onClick={() => handleToggleUserVerify(u.id)}
-                                className={`px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase border transition-colors cursor-pointer ${
-                                  u.verified ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' : 'bg-slate-50 text-fiverr-dark border-slate-200 hover:bg-slate-100'
-                                }`}
-                              >
-                                {u.verified ? '✓ Verified' : '+ Verify Badge'}
-                              </button>
-                            </td>
-                            <td className="p-4">
-                              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                                u.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                u.status === 'suspended' ? 'bg-red-50 text-red-700 border-red-200' :
-                                'bg-amber-50 text-amber-700 border-amber-200'
-                              }`}>
-                                {u.status}
-                              </span>
-                            </td>
-                            <td className="p-4 text-right space-x-1.5">
-                              {/* Inspect Activity */}
-                              <button 
-                                onClick={() => setInspectingUser(u)}
-                                className="px-2.5 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px] cursor-pointer"
-                                title="View complete user activity & history"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>Activity</span>
-                              </button>
-
-                              {/* Edit Profile */}
-                              <button 
-                                onClick={() => handleOpenEditUserModal(u)}
-                                className="px-2.5 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px] cursor-pointer"
-                                title="Edit user details"
-                              >
-                                <Settings className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>Edit</span>
-                              </button>
-
-                              {/* Status Action Buttons */}
-                              {u.status === 'active' ? (
-                                <button 
-                                  onClick={() => handleUserStatusToggle(u.id, 'suspended')}
-                                  className="px-2.5 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px] cursor-pointer"
-                                >
-                                  Suspend
-                                </button>
-                              ) : (
-                                <button 
-                                  onClick={() => handleUserStatusToggle(u.id, 'active')}
-                                  className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-lg hover:bg-emerald-100 text-[11px] cursor-pointer"
-                                >
-                                  Activate
-                                </button>
-                              )}
-
-                              {u.status !== 'restricted' && (
-                                <button 
-                                  onClick={() => handleUserStatusToggle(u.id, 'restricted')}
-                                  className="px-2.5 py-1.5 bg-amber-50 text-amber-700 border border-amber-200 font-bold rounded-lg hover:bg-amber-100 text-[11px] cursor-pointer"
-                                >
-                                  Restrict
-                                </button>
-                              )}
-
-                              {/* Impersonate */}
-                              <button 
-                                onClick={() => handleStartImpersonation(u)}
-                                className="px-2.5 py-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 font-bold rounded-lg hover:bg-indigo-100 transition-colors text-[11px] cursor-pointer"
-                              >
-                                Impersonate
-                              </button>
-
-                              {/* Delete User */}
-                              <button 
-                                onClick={() => handleDeleteUser(u.id)}
-                                className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px] cursor-pointer"
-                                title="Delete user permanently"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <InspectUserModal
-                inspectingUser={inspectingUser}
-                onClose={() => setInspectingUser(null)}
-                userActivityTab={userActivityTab}
-                setUserActivityTab={setUserActivityTab}
-                gigs={gigs}
-                projects={projects}
-                proposals={proposals}
-                orders={orders}
-                reviews={reviews}
-                supportTickets={supportTickets}
-              />
-
-              <EditUserProfileModal
-                editingUser={editingUser}
-                onClose={() => setEditingUser(null)}
-                editUserForm={editUserForm}
-                setEditUserForm={setEditUserForm}
-                handleSaveEditUser={handleSaveEditUser}
-              />
-            </div>
+            <AdminUsersModule 
+              allUsers={usersList} 
+              onImpersonateUser={(userId) => { const u = usersList.find(x => x.id === userId); if (u) setImpersonatedUser(u); }} 
+              onToggleUserStatus={(userId) => { setUsersList(prev => prev.map(u => u.id === userId ? { ...u, status: u.status === 'suspended' ? 'active' : 'suspended' } : u)); }} 
+            />
           )}
 
           {/* MODULE 3: PROJECTS MANAGEMENT */}
           {adminTab === 'projects' && (
-            <div className="space-y-6">
-              {/* Filter & Control Header */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-base font-bold text-fiverr-dark flex items-center gap-2">
-                      <Briefcase className="w-5 h-5 text-emerald-600" />
-                      <span>Projects & Buyer Requests Management</span>
-                    </h3>
-                    <p className="text-xs text-fiverr-muted mt-0.5">Manage, search, filter, edit, publish, unpublish, suspend, restore, feature, and moderate buyer RFPs.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-fiverr-dark font-mono bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 font-medium">
-                      {projects.length} Total Projects
-                    </span>
-                  </div>
-                </div>
-
-                {/* Search & Filters */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Search */}
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                    <input 
-                      type="text" 
-                      placeholder="Search title, buyer, description..." 
-                      value={projectSearchQuery}
-                      onChange={(e) => setProjectSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:bg-white focus:border-emerald-500"
-                    />
-                  </div>
-
-                  {/* Status Filter */}
-                  <div>
-                    <select 
-                      value={projectStatusFilter}
-                      onChange={(e) => setProjectStatusFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                    >
-                      <option value="all">All Statuses</option>
-                      <option value="open">Open / Active</option>
-                      <option value="published">Published</option>
-                      <option value="unpublished">Unpublished (Draft)</option>
-                      <option value="suspended">Suspended</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="completed">Completed</option>
-                    </select>
-                  </div>
-
-                  {/* Category Filter */}
-                  <div>
-                    <select 
-                      value={projectCategoryFilter}
-                      onChange={(e) => setProjectCategoryFilter(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                    >
-                      <option value="all">All Categories</option>
-                      {categories.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Featured Filter */}
-                  <div>
-                    <select 
-                      value={projectFeaturedFilter}
-                      onChange={(e) => setProjectFeaturedFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                    >
-                      <option value="all">All Listing Types</option>
-                      <option value="featured">Featured Projects Only ★</option>
-                      <option value="regular">Regular Projects Only</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Projects Table */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-fiverr-muted border-b border-slate-200">
-                        <th className="p-4">Project & Buyer</th>
-                        <th className="p-4">Category & Subcategory</th>
-                        <th className="p-4">Budget & Deadline</th>
-                        <th className="p-4">Proposals</th>
-                        <th className="p-4">Featured</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4 text-right">Admin Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs text-fiverr-dark">
-                      {projects
-                        .filter(p => {
-                          const q = projectSearchQuery.toLowerCase();
-                          const matchesSearch = !q || 
-                            p.title.toLowerCase().includes(q) || 
-                            p.description.toLowerCase().includes(q) || 
-                            p.buyerName.toLowerCase().includes(q) || 
-                            p.category.toLowerCase().includes(q);
-                          const matchesStatus = projectStatusFilter === 'all' || p.status === projectStatusFilter;
-                          const matchesCat = projectCategoryFilter === 'all' || p.category === projectCategoryFilter;
-                          const matchesFeatured = projectFeaturedFilter === 'all' || 
-                            (projectFeaturedFilter === 'featured' && p.featured) || 
-                            (projectFeaturedFilter === 'regular' && !p.featured);
-                          return matchesSearch && matchesStatus && matchesCat && matchesFeatured;
-                        })
-                        .map(p => (
-                          <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
-                            <td className="p-4">
-                              <div className="flex items-center gap-3">
-                                <img src={p.buyerAvatar} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-200" />
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-fiverr-dark text-sm hover:text-emerald-600 cursor-pointer" onClick={() => setViewingProject(p)}>{p.title}</span>
-                                    {p.featured && (
-                                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded text-[10px] font-bold">★ Featured</span>
-                                    )}
-                                  </div>
-                                  <span className="text-[11px] text-fiverr-muted">Buyer: {p.buyerName} · Posted {p.createdAt}</span>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-semibold text-fiverr-dark block">{p.category}</span>
-                              <span className="text-[11px] text-fiverr-muted">{p.subcategory || 'General'}</span>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-bold text-emerald-600 block">${p.budgetMin.toLocaleString()} - ${p.budgetMax.toLocaleString()}</span>
-                              <span className="text-[11px] text-fiverr-muted">{p.deadlineDays} Days Delivery</span>
-                            </td>
-                            <td className="p-4">
-                              <span className="px-2.5 py-1 bg-slate-50 border border-slate-200 rounded-lg text-indigo-700 font-bold font-mono">
-                                {p.proposalsCount} bids
-                              </span>
-                            </td>
-                            <td className="p-4">
-                              <button 
-                                onClick={() => handleToggleProjectFeature(p.id)}
-                                className={`px-2.5 py-1 rounded-lg font-bold text-[10px] uppercase border transition-colors cursor-pointer ${
-                                  p.featured 
-                                    ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
-                                    : 'bg-slate-50 text-fiverr-dark border-slate-200 hover:bg-slate-100'
-                                }`}
-                              >
-                                {p.featured ? '★ Featured' : '+ Feature'}
-                              </button>
-                            </td>
-                            <td className="p-4">
-                              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                                p.status === 'open' || p.status === 'published' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                p.status === 'suspended' ? 'bg-red-50 text-red-700 border-red-200' :
-                                p.status === 'unpublished' ? 'bg-slate-100 text-fiverr-dark border-slate-200' :
-                                'bg-indigo-50 text-indigo-700 border-indigo-200'
-                              }`}>
-                                {p.status}
-                              </span>
-                            </td>
-                            <td className="p-4 text-right space-x-1.5">
-                              {/* View Details */}
-                              <button 
-                                onClick={() => setViewingProject(p)}
-                                className="px-2.5 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px] cursor-pointer"
-                                title="View full project details"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>View</span>
-                              </button>
-
-                              {/* Edit */}
-                              <button 
-                                onClick={() => handleOpenEditProjectModal(p)}
-                                className="px-2.5 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px] cursor-pointer"
-                                title="Edit project title, category, budget"
-                              >
-                                <Settings className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>Edit</span>
-                              </button>
-
-                              {/* Publish / Unpublish Toggle */}
-                              {p.status === 'unpublished' ? (
-                                <button 
-                                  onClick={() => handleUpdateProjectStatus(p.id, 'open')}
-                                  className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-lg hover:bg-emerald-100 text-[11px] cursor-pointer"
-                                >
-                                  Publish
-                                </button>
-                              ) : p.status === 'open' || p.status === 'published' ? (
-                                <button 
-                                  onClick={() => handleUpdateProjectStatus(p.id, 'unpublished')}
-                                  className="px-2.5 py-1.5 bg-slate-100 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-200 text-[11px] cursor-pointer"
-                                >
-                                  Unpublish
-                                </button>
-                              ) : null}
-
-                              {/* Suspend / Restore Toggle */}
-                              {p.status === 'suspended' ? (
-                                <button 
-                                  onClick={() => handleUpdateProjectStatus(p.id, 'open')}
-                                  className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-lg hover:bg-emerald-100 text-[11px] cursor-pointer"
-                                >
-                                  Restore
-                                </button>
-                              ) : (
-                                <button 
-                                  onClick={() => handleUpdateProjectStatus(p.id, 'suspended')}
-                                  className="px-2.5 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px] cursor-pointer"
-                                >
-                                  Suspend
-                                </button>
-                              )}
-
-                              {/* Moderate */}
-                              <button 
-                                onClick={() => handleOpenModerationModal(p)}
-                                className="px-2.5 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 font-bold rounded-lg hover:bg-purple-100 text-[11px] cursor-pointer"
-                              >
-                                Moderate
-                              </button>
-
-                              {/* Delete */}
-                              <button 
-                                onClick={() => handleDeleteProject(p.id)}
-                                className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px] cursor-pointer"
-                                title="Delete Project"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* VIEW PROJECT DETAILS MODAL */}
-              {viewingProject && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-3xl w-full space-y-6 max-h-[90vh] overflow-y-auto text-slate-800 shadow-2xl">
-                    <div className="flex items-start justify-between pb-4 border-b border-slate-100">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-xl font-bold text-fiverr-dark">{viewingProject.title}</h3>
-                          {viewingProject.featured && (
-                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-xs font-bold">★ Featured</span>
-                          )}
-                        </div>
-                        <p className="text-xs text-fiverr-muted mt-1">Project ID: #{viewingProject.id} · Category: <span className="text-emerald-700 font-semibold">{viewingProject.category} ({viewingProject.subcategory || 'General'})</span></p>
-                      </div>
-                      <button 
-                        onClick={() => setViewingProject(null)}
-                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-fiverr-dark text-xs font-bold rounded-xl cursor-pointer"
-                      >
-                        Close
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block">Budget Range</span>
-                        <span className="text-base font-bold text-emerald-700">${viewingProject.budgetMin} - ${viewingProject.budgetMax}</span>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block">Deadline</span>
-                        <span className="text-base font-bold text-fiverr-dark">{viewingProject.deadlineDays} Days</span>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block">Status</span>
-                        <span className="text-base font-bold text-indigo-700 uppercase">{viewingProject.status}</span>
-                      </div>
-                      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center">
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block">Bids Received</span>
-                        <span className="text-base font-bold text-purple-700">{viewingProject.proposalsCount}</span>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-2">
-                      <h4 className="text-xs font-bold text-fiverr-muted uppercase">Project Brief & Description</h4>
-                      <p className="text-xs text-slate-800 leading-relaxed whitespace-pre-wrap">{viewingProject.description}</p>
-                    </div>
-
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <img src={viewingProject.buyerAvatar} className="w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500/30" />
-                        <div>
-                          <span className="text-xs font-bold text-fiverr-dark block">{viewingProject.buyerName}</span>
-                          <span className="text-[11px] text-fiverr-muted font-mono">Buyer ID: {viewingProject.buyerId}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-slate-400 font-mono">Created: {viewingProject.createdAt}</span>
-                    </div>
-
-                    {viewingProject.moderationNotes && (
-                      <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl text-xs space-y-1">
-                        <span className="font-bold text-purple-800 block">Moderation Log Notes:</span>
-                        <p className="text-fiverr-dark">{viewingProject.moderationNotes}</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* EDIT PROJECT MODAL */}
-              {editingProject && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-xl w-full space-y-5 text-slate-800 shadow-2xl">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                      <h3 className="text-lg font-bold text-fiverr-dark">Edit Project — {editingProject.title}</h3>
-                      <button 
-                        onClick={() => setEditingProject(null)}
-                        className="text-slate-400 hover:text-fiverr-dark text-xs font-bold cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleSaveEditProject} className="space-y-4 text-xs">
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Project Title</label>
-                        <input 
-                          type="text" 
-                          value={editProjectForm.title}
-                          onChange={(e) => setEditProjectForm(prev => ({ ...prev, title: e.target.value }))}
-                          required
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500 font-medium"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Category</label>
-                          <select 
-                            value={editProjectForm.category}
-                            onChange={(e) => setEditProjectForm(prev => ({ ...prev, category: e.target.value }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                          >
-                            {categories.map(c => (
-                              <option key={c.id} value={c.name}>{c.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Subcategory</label>
-                          <input 
-                            type="text" 
-                            value={editProjectForm.subcategory}
-                            onChange={(e) => setEditProjectForm(prev => ({ ...prev, subcategory: e.target.value }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Budget Min ($)</label>
-                          <input 
-                            type="number" 
-                            value={editProjectForm.budgetMin}
-                            onChange={(e) => setEditProjectForm(prev => ({ ...prev, budgetMin: Number(e.target.value) }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Budget Max ($)</label>
-                          <input 
-                            type="number" 
-                            value={editProjectForm.budgetMax}
-                            onChange={(e) => setEditProjectForm(prev => ({ ...prev, budgetMax: Number(e.target.value) }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Deadline (Days)</label>
-                          <input 
-                            type="number" 
-                            value={editProjectForm.deadlineDays}
-                            onChange={(e) => setEditProjectForm(prev => ({ ...prev, deadlineDays: Number(e.target.value) }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500 font-mono"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Project Status</label>
-                        <select 
-                          value={editProjectForm.status}
-                          onChange={(e) => setEditProjectForm(prev => ({ ...prev, status: e.target.value as any }))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                        >
-                          <option value="open">Open</option>
-                          <option value="published">Published</option>
-                          <option value="unpublished">Unpublished</option>
-                          <option value="suspended">Suspended</option>
-                          <option value="in_progress">In Progress</option>
-                          <option value="completed">Completed</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Project Description</label>
-                        <textarea 
-                          rows={4}
-                          value={editProjectForm.description}
-                          onChange={(e) => setEditProjectForm(prev => ({ ...prev, description: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                        />
-                      </div>
-
-                      <div className="pt-2">
-                        <label className="flex items-center gap-2 cursor-pointer font-bold text-fiverr-dark">
-                          <input 
-                            type="checkbox" 
-                            checked={editProjectForm.featured}
-                            onChange={(e) => setEditProjectForm(prev => ({ ...prev, featured: e.target.checked }))}
-                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                          />
-                          <span>Feature Project on Homepage & Listings</span>
-                        </label>
-                      </div>
-
-                      <div className="pt-4 flex items-center justify-end gap-3">
-                        <button 
-                          type="button"
-                          onClick={() => setEditingProject(null)}
-                          className="px-4 py-2 bg-slate-100 text-fiverr-dark font-bold rounded-xl hover:bg-slate-200 cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          type="submit"
-                          className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-sm cursor-pointer"
-                        >
-                          Save Project
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {/* MODERATE PROJECT MODAL */}
-              {moderatingProject && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-lg w-full space-y-5 text-slate-800 shadow-2xl">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                      <h3 className="text-lg font-bold text-fiverr-dark">Moderate Project — #{moderatingProject.id}</h3>
-                      <button 
-                        onClick={() => setModeratingProject(null)}
-                        className="text-slate-400 hover:text-fiverr-dark text-xs font-bold cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleSaveModeration} className="space-y-4 text-xs">
-                      <div>
-                        <span className="text-fiverr-muted block font-bold mb-1">Project Title:</span>
-                        <span className="text-fiverr-dark font-bold text-sm block">{moderatingProject.title}</span>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Moderation Verdict</label>
-                        <select 
-                          value={moderationStatus}
-                          onChange={(e) => setModerationStatus(e.target.value as any)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                        >
-                          <option value="approved">✓ Approved (Complies with Policy)</option>
-                          <option value="flagged">⚠ Flagged for Safety Review</option>
-                          <option value="rejected">✕ Rejected (Policy Violation)</option>
-                          <option value="pending">⏳ Pending Review</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Moderation Review Notes</label>
-                        <textarea 
-                          rows={3}
-                          placeholder="Provide details regarding policy compliance, safety checks, or rationale..."
-                          value={moderationNotes}
-                          onChange={(e) => setModerationNotes(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:bg-white focus:border-emerald-500"
-                        />
-                      </div>
-
-                      <div className="pt-4 flex items-center justify-end gap-3">
-                        <button 
-                          type="button"
-                          onClick={() => setModeratingProject(null)}
-                          className="px-4 py-2 bg-slate-100 text-fiverr-dark font-bold rounded-xl hover:bg-slate-200 cursor-pointer"
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          type="submit"
-                          className="px-5 py-2 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 shadow-sm cursor-pointer"
-                        >
-                          Save Moderation Verdict
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AdminProjectsModule allProjects={projects} />
           )}
 
           {/* MODULE 4: FREELANCER GIGS & SERVICES MANAGEMENT */}
           {adminTab === 'gigs' && (
-            <div className="space-y-6">
-              <div className="bg-emerald-50 border border-emerald-200 rounded-3xl p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                    ★
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-emerald-900 text-sm">Feature Gigs Pricing & Promotion</h4>
-                    <p className="text-xs text-emerald-700">Admins can feature any freelancer service ($10.00 / 7 days by default) or configure pricing in Site Settings.</p>
-                  </div>
-                </div>
-                <button
-                  onClick={() => setAdminTab('settings')}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-xs cursor-pointer whitespace-nowrap"
-                >
-                  Configure Feature Fee ($10)
-                </button>
-              </div>
-
-              {/* Filter & Control Header */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-base font-bold text-fiverr-dark flex items-center gap-2">
-                      <Layers className="w-5 h-5 text-emerald-600" />
-                      <span>Freelancer Services & Gigs Management</span>
-                    </h3>
-                    <p className="text-xs text-fiverr-muted mt-0.5">Manage, moderate, search, filter, edit, publish, unpublish, suspend, restore, feature, and audit freelancer services.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-fiverr-dark font-mono bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-                      {gigs.length} Total Services Listed
-                    </span>
-                  </div>
-                </div>
-
-                {/* Search & Filters */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Search */}
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                    <input 
-                      type="text" 
-                      placeholder="Search title, freelancer, desc..." 
-                      value={gigSearchQuery}
-                      onChange={(e) => setGigSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white transition-colors"
-                    />
-                  </div>
-
-                  {/* Status Filter */}
-                  <div>
-                    <select 
-                      value={gigStatusFilter}
-                      onChange={(e) => setGigStatusFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      <option value="all">All Statuses</option>
-                      <option value="published">Published</option>
-                      <option value="draft">Draft</option>
-                      <option value="suspended">Suspended</option>
-                    </select>
-                  </div>
-
-                  {/* Category Filter */}
-                  <div>
-                    <select 
-                      value={gigCategoryFilter}
-                      onChange={(e) => setGigCategoryFilter(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      <option value="all">All Categories</option>
-                      {categories.map(c => (
-                        <option key={c.id} value={c.name}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Featured Filter */}
-                  <div>
-                    <select 
-                      value={gigFeaturedFilter}
-                      onChange={(e) => setGigFeaturedFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      <option value="all">All Listing Types</option>
-                      <option value="featured">Featured Gigs ★</option>
-                      <option value="regular">Regular Gigs Only</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              {/* Gigs Grid/List */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-fiverr-dark border-b border-slate-200">
-                        <th className="p-4">Service & Freelancer</th>
-                        <th className="p-4">Category</th>
-                        <th className="p-4">Starting Price & Delivery</th>
-                        <th className="p-4">Rating / Reviews</th>
-                        <th className="p-4">Featured</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4 text-right">Admin Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs text-fiverr-dark">
-                      {gigs
-                        .filter(g => {
-                          const q = gigSearchQuery.toLowerCase();
-                          const matchesSearch = !q || 
-                            g.title.toLowerCase().includes(q) || 
-                            g.description.toLowerCase().includes(q) ||
-                            g.freelancerName.toLowerCase().includes(q) ||
-                            g.category.toLowerCase().includes(q);
-                          const matchesStatus = gigStatusFilter === 'all' || g.status === gigStatusFilter;
-                          const matchesCat = gigCategoryFilter === 'all' || g.category === gigCategoryFilter;
-                          const matchesFeatured = gigFeaturedFilter === 'all' || 
-                            (gigFeaturedFilter === 'featured' && g.featured) ||
-                            (gigFeaturedFilter === 'regular' && !g.featured);
-                          return matchesSearch && matchesStatus && matchesCat && matchesFeatured;
-                        })
-                        .map(g => (
-                          <tr key={g.id} className="hover:bg-slate-50/70 transition-colors">
-                            <td className="p-4">
-                              <div className="flex items-center gap-3">
-                                <img src={g.image || 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800&h=500&fit=crop'} className="w-12 h-12 rounded-xl object-cover ring-1 ring-slate-200 shrink-0" />
-                                <div>
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-bold text-fiverr-dark text-sm hover:text-emerald-600 cursor-pointer" onClick={() => setViewingGig(g)}>{g.title}</span>
-                                    {g.featured && (
-                                      <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded text-[10px] font-bold">★ Featured</span>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-1.5 text-[11px] text-fiverr-muted mt-1">
-                                    <img src={g.freelancerAvatar} className="w-4 h-4 rounded-full object-cover ring-1 ring-slate-200" />
-                                    <span>{g.freelancerName} ({g.freelancerLevel || 'Freelancer'})</span>
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-semibold text-fiverr-dark block">{g.category}</span>
-                              <span className="text-[11px] text-fiverr-muted">{g.subcategory || 'General'}</span>
-                            </td>
-                            <td className="p-4">
-                              <span className="font-bold text-emerald-600 block">${g.price.toLocaleString()}</span>
-                              <span className="text-[11px] text-fiverr-muted">{g.deliveryDays} Days Delivery</span>
-                            </td>
-                            <td className="p-4">
-                              <div className="flex items-center gap-1">
-                                <span className="font-bold text-yellow-500 font-mono">★ {g.rating || 5.0}</span>
-                                <span className="text-slate-400">({g.reviewsCount || 0})</span>
-                              </div>
-                            </td>
-                            <td className="p-4">
-                              <button 
-                                onClick={() => handleToggleGigFeature(g.id)}
-                                className={`px-3 py-1.5 rounded-xl font-bold text-xs shadow-xs transition-all cursor-pointer flex items-center gap-1.5 ${
-                                  g.featured 
-                                    ? 'bg-amber-500 text-white hover:bg-amber-600' 
-                                    : 'bg-slate-900 text-amber-400 hover:bg-slate-800'
-                                }`}
-                                title="Click to toggle featured status ($10 / 7d fee)"
-                              >
-                                <span>{g.featured ? '★ Featured (Active)' : '+ Feature ($10)'}</span>
-                              </button>
-                            </td>
-                            <td className="p-4">
-                              <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                                g.status === 'published' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                g.status === 'suspended' ? 'bg-red-50 text-red-700 border-red-200' :
-                                'bg-slate-100 text-fiverr-dark border-slate-200'
-                              }`}>
-                                {g.status}
-                              </span>
-                            </td>
-                            <td className="p-4 text-right space-x-1.5 whitespace-nowrap">
-                              {/* View Details */}
-                              <button 
-                                onClick={() => setViewingGig(g)}
-                                className="px-2 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px]"
-                                title="Inspect Service"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>View</span>
-                              </button>
-
-                              {/* Edit */}
-                              <button 
-                                onClick={() => handleOpenEditGigModal(g)}
-                                className="px-2 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px]"
-                                title="Edit Service details"
-                              >
-                                <Settings className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>Edit</span>
-                              </button>
-
-                              {/* Publish / Unpublish Toggle */}
-                              {g.status === 'draft' ? (
-                                <button 
-                                  onClick={() => handleUpdateGigStatus(g.id, 'published')}
-                                  className="px-2 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-lg hover:bg-emerald-100 text-[11px]"
-                                >
-                                  Publish
-                                </button>
-                              ) : g.status === 'published' ? (
-                                <button 
-                                  onClick={() => handleUpdateGigStatus(g.id, 'draft')}
-                                  className="px-2 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 text-[11px]"
-                                >
-                                  Unpublish
-                                </button>
-                              ) : null}
-
-                              {/* Suspend / Restore Toggle */}
-                              {g.status === 'suspended' ? (
-                                <button 
-                                  onClick={() => handleUpdateGigStatus(g.id, 'published')}
-                                  className="px-2 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-lg hover:bg-emerald-100 text-[11px]"
-                                >
-                                  Restore
-                                </button>
-                              ) : (
-                                <button 
-                                  onClick={() => handleUpdateGigStatus(g.id, 'suspended')}
-                                  className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px]"
-                                >
-                                  Suspend
-                                </button>
-                              )}
-
-                              {/* Moderate */}
-                              <button 
-                                onClick={() => handleOpenGigModerationModal(g)}
-                                className="px-2 py-1.5 bg-purple-50 text-purple-700 border border-purple-200 font-bold rounded-lg hover:bg-purple-100 text-[11px]"
-                              >
-                                Moderate
-                              </button>
-
-                              {/* Delete */}
-                              <button 
-                                onClick={() => handleDeleteGig(g.id)}
-                                className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px] inline-flex items-center gap-1"
-                                title="Delete Gig permanently"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete</span>
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* INSPECT GIG DETAILS MODAL */}
-              {viewingGig && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-3xl w-full space-y-6 max-h-[90vh] overflow-y-auto text-slate-800 shadow-2xl">
-                    <div className="flex items-start justify-between pb-4 border-b border-slate-100">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-xl font-bold text-fiverr-dark">{viewingGig.title}</h3>
-                          {viewingGig.featured && (
-                            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded text-xs font-bold">★ Featured</span>
-                          )}
-                        </div>
-                        <p className="text-xs text-fiverr-muted mt-1">Gig ID: #{viewingGig.id} · Category: <span className="text-emerald-600 font-semibold">{viewingGig.category} ({viewingGig.subcategory || 'General'})</span></p>
-                      </div>
-                      <button 
-                        onClick={() => setViewingGig(null)}
-                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-fiverr-dark text-xs font-bold rounded-xl"
-                      >
-                        Close
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div className="space-y-4">
-                        <img 
-                          src={viewingGig.image || 'https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800&h=500&fit=crop'} 
-                          className="w-full h-48 rounded-2xl object-cover border border-slate-200 shadow-xs" 
-                        />
-                        <div className="grid grid-cols-3 gap-2">
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                            <span className="text-[9px] text-fiverr-muted uppercase font-bold block">Starting Price</span>
-                            <span className="text-sm font-bold text-emerald-600">${viewingGig.price}</span>
-                          </div>
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                            <span className="text-[9px] text-fiverr-muted uppercase font-bold block">Delivery Time</span>
-                            <span className="text-sm font-bold text-fiverr-dark">{viewingGig.deliveryDays} Days</span>
-                          </div>
-                          <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                            <span className="text-[9px] text-fiverr-muted uppercase font-bold block">Rating</span>
-                            <span className="text-sm font-bold text-yellow-500">★ {viewingGig.rating || 5.0}</span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
-                          <span className="text-[10px] text-fiverr-muted uppercase font-bold block">Gig Description</span>
-                          <p className="text-xs text-fiverr-dark leading-relaxed whitespace-pre-wrap">{viewingGig.description}</p>
-                        </div>
-
-                        {viewingGig.extras && viewingGig.extras.length > 0 && (
-                          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                            <span className="text-[10px] text-fiverr-muted uppercase font-bold block mb-2">Gig Upgrades & Extras</span>
-                            <div className="space-y-2">
-                              {viewingGig.extras.map(e => (
-                                <div key={e.id} className="flex justify-between items-center text-xs bg-white px-3 py-2 rounded-lg border border-slate-200">
-                                  <span className="text-slate-800">{e.title}</span>
-                                  <span className="font-bold text-emerald-600">+${e.price}</span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <img src={viewingGig.freelancerAvatar} className="w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500/20" />
-                        <div>
-                          <span className="text-xs font-bold text-fiverr-dark block">{viewingGig.freelancerName}</span>
-                          <span className="text-[11px] text-fiverr-muted">Freelancer ID: {viewingGig.freelancerId} · Level: {viewingGig.freelancerLevel || 'Pro'}</span>
-                        </div>
-                      </div>
-                      <span className="text-xs text-fiverr-muted">Moderation: {viewingGig.moderationStatus || 'Pending review'}</span>
-                    </div>
-
-                    {viewingGig.moderationNotes && (
-                      <div className="bg-purple-50 border border-purple-200 p-4 rounded-2xl text-xs space-y-1">
-                        <span className="font-bold text-purple-700 block">Moderation Log Notes:</span>
-                        <p className="text-purple-900">{viewingGig.moderationNotes}</p>
-                      </div>
-                    )}
-
-                    <div className="flex justify-between items-center pt-4 border-t border-slate-100">
-                      <button 
-                        onClick={() => {
-                          if (viewingGig) {
-                            handleDeleteGig(viewingGig.id);
-                            setViewingGig(null);
-                          }
-                        }}
-                        className="px-4 py-2 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 font-bold rounded-xl flex items-center gap-1.5 text-xs transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        <span>Delete Service</span>
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => {
-                            const g = viewingGig;
-                            setViewingGig(null);
-                            handleOpenEditGigModal(g);
-                          }}
-                          className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold rounded-xl flex items-center gap-1 text-xs transition-colors"
-                        >
-                          <Settings className="w-4 h-4" />
-                          <span>Edit Details</span>
-                        </button>
-                        <button 
-                          onClick={() => setViewingGig(null)}
-                          className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-fiverr-dark font-bold rounded-xl text-xs transition-colors"
-                        >
-                          Close
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* EDIT GIG DETAILS MODAL */}
-              {editingGig && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-xl w-full space-y-5 text-slate-800 shadow-2xl">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                      <h3 className="text-lg font-bold text-fiverr-dark">Edit Service — {editingGig.title}</h3>
-                      <button 
-                        onClick={() => setEditingGig(null)}
-                        className="text-slate-400 hover:text-fiverr-dark text-xs font-bold"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleSaveEditGig} className="space-y-4 text-xs">
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Service / Gig Title</label>
-                        <input 
-                          type="text" 
-                          value={editGigForm.title}
-                          onChange={(e) => setEditGigForm(prev => ({ ...prev, title: e.target.value }))}
-                          required
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Category</label>
-                          <select 
-                            value={editGigForm.category}
-                            onChange={(e) => setEditGigForm(prev => ({ ...prev, category: e.target.value }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          >
-                            {categories.map(c => (
-                              <option key={c.id} value={c.name}>{c.name}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Subcategory</label>
-                          <input 
-                            type="text" 
-                            value={editGigForm.subcategory}
-                            onChange={(e) => setEditGigForm(prev => ({ ...prev, subcategory: e.target.value }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          />
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Base Price ($)</label>
-                          <input 
-                            type="number" 
-                            value={editGigForm.price}
-                            onChange={(e) => setEditGigForm(prev => ({ ...prev, price: Number(e.target.value) }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Delivery Time (Days)</label>
-                          <input 
-                            type="number" 
-                            value={editGigForm.deliveryDays}
-                            onChange={(e) => setEditGigForm(prev => ({ ...prev, deliveryDays: Number(e.target.value) }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Status</label>
-                          <select 
-                            value={editGigForm.status}
-                            onChange={(e) => setEditGigForm(prev => ({ ...prev, status: e.target.value as any }))}
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          >
-                            <option value="published">Published</option>
-                            <option value="draft">Draft</option>
-                            <option value="suspended">Suspended</option>
-                          </select>
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Description</label>
-                        <textarea 
-                          rows={4}
-                          value={editGigForm.description}
-                          onChange={(e) => setEditGigForm(prev => ({ ...prev, description: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                        />
-                      </div>
-
-                      <div className="pt-2">
-                        <label className="flex items-center gap-2 cursor-pointer font-bold text-fiverr-dark">
-                          <input 
-                            type="checkbox" 
-                            checked={editGigForm.featured}
-                            onChange={(e) => setEditGigForm(prev => ({ ...prev, featured: e.target.checked }))}
-                            className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
-                          />
-                          <span>Feature Gig on Homepage & Listings</span>
-                        </label>
-                      </div>
-
-                      <div className="pt-4 flex items-center justify-between border-t border-slate-100">
-                        <button 
-                          type="button"
-                          onClick={() => {
-                            if (editingGig) {
-                              handleDeleteGig(editingGig.id);
-                              setEditingGig(null);
-                            }
-                          }}
-                          className="px-4 py-2 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 font-bold rounded-xl flex items-center gap-1.5 text-xs transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          <span>Delete Service</span>
-                        </button>
-                        <div className="flex items-center gap-3">
-                          <button 
-                            type="button"
-                            onClick={() => setEditingGig(null)}
-                            className="px-4 py-2 bg-slate-100 text-fiverr-dark font-bold rounded-xl hover:bg-slate-200 text-xs"
-                          >
-                            Cancel
-                          </button>
-                          <button 
-                            type="submit"
-                            className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-500 text-xs shadow-xs"
-                          >
-                            Save Gig Details
-                          </button>
-                        </div>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-
-              {/* MODERATE GIG MODAL */}
-              {moderatingGig && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-lg w-full space-y-5 text-slate-800 shadow-2xl">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                      <h3 className="text-lg font-bold text-fiverr-dark">Moderate Service / Gig</h3>
-                      <button 
-                        onClick={() => setModeratingGig(null)}
-                        className="text-slate-400 hover:text-fiverr-dark text-xs font-bold"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleSaveGigModeration} className="space-y-4 text-xs">
-                      <div>
-                        <span className="text-fiverr-muted block font-bold mb-1">Gig Title:</span>
-                        <span className="text-fiverr-dark font-bold text-sm block">{moderatingGig.title}</span>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Moderation Verdict</label>
-                        <select 
-                          value={gigModerationStatus}
-                          onChange={(e) => setGigModerationStatus(e.target.value as any)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                        >
-                          <option value="approved">✓ Approved (Complies with Policy)</option>
-                          <option value="flagged">⚠ Flagged for Policy Warning</option>
-                          <option value="rejected">✕ Rejected (Policy Violation)</option>
-                          <option value="pending">⏳ Pending Review</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Moderation Review Notes</label>
-                        <textarea 
-                          rows={3}
-                          placeholder="Provide rationales, warning notes, or feedback for the seller..."
-                          value={gigModerationNotes}
-                          onChange={(e) => setGigModerationNotes(e.target.value)}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                        />
-                      </div>
-
-                      <div className="pt-4 flex items-center justify-end gap-3">
-                        <button 
-                          type="button"
-                          onClick={() => setModeratingGig(null)}
-                          className="px-4 py-2 bg-slate-100 text-fiverr-dark font-bold rounded-xl hover:bg-slate-200"
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          type="submit"
-                          className="px-5 py-2 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-500 shadow-xs"
-                        >
-                          Save Moderation Verdict
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AdminGigsModule allGigs={gigs} />
           )}
 
           {/* MODULE 5: CATEGORIES & SUBCATEGORIES MANAGEMENT */}
           {adminTab === 'categories' && (
-            <div className="space-y-6">
-              {/* Add New Category Box */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                <h3 className="text-base font-bold text-fiverr-dark mb-2">Add New Parent Category</h3>
-                <p className="text-xs text-fiverr-muted mb-4">Create top-level marketplace categories with clean search-engine friendly slugs.</p>
-                <form onSubmit={handleAddCategory} className="flex flex-col sm:flex-row items-center gap-3">
-                  <input 
-                    type="text" 
-                    placeholder="Category Name (e.g. Writing & Translation)..." 
-                    value={newCategoryName}
-                    onChange={(e) => setNewCategoryName(e.target.value)}
-                    required
-                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white w-full"
-                  />
-                  <input 
-                    type="text" 
-                    placeholder="Slug (optional e.g. writing-translation)..." 
-                    value={newCategorySlug}
-                    onChange={(e) => setNewCategorySlug(e.target.value)}
-                    className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white w-full"
-                  />
-                  <button 
-                    type="submit" 
-                    className="px-5 py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-500 transition-colors whitespace-nowrap w-full sm:w-auto flex items-center justify-center gap-1.5 shadow-xs"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Create Category</span>
-                  </button>
-                </form>
-              </div>
-
-              {/* Categories & Subcategories Directory */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-6 shadow-xs">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-                  <div>
-                    <h3 className="text-base font-bold text-fiverr-dark">Categories & Subcategories Directory</h3>
-                    <p className="text-xs text-fiverr-muted">Edit titles, manage slugs, toggle status (ON/OFF), or bulk delete categories.</p>
-                  </div>
-
-                  <div className="flex items-center gap-3">
-                    {(selectedCatIds.length > 0 || selectedSubPairs.length > 0) && (
-                      <button 
-                        onClick={handleBulkDeleteCategories}
-                        className="px-4 py-2 bg-red-600 text-white font-bold text-xs rounded-xl hover:bg-red-500 transition-colors shadow-xs flex items-center gap-1.5"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>Bulk Delete Selected ({selectedCatIds.length + selectedSubPairs.length})</span>
-                      </button>
-                    )}
-                    <span className="text-xs font-mono text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
-                      {categories.length} Categories Total
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  {categories.map(cat => {
-                    const isEditingThisCat = editingCatId === cat.id;
-                    const isCatSelected = selectedCatIds.includes(cat.id);
-
-                    return (
-                      <div key={cat.id} className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-4">
-                        {/* Parent Category Header */}
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200/80">
-                          <div className="flex items-center gap-3 flex-1">
-                            <input 
-                              type="checkbox"
-                              checked={isCatSelected}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedCatIds(prev => [...prev, cat.id]);
-                                } else {
-                                  setSelectedCatIds(prev => prev.filter(id => id !== cat.id));
-                                }
-                              }}
-                              className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                            />
-
-                            {isEditingThisCat ? (
-                              <div className="flex-1 flex flex-col sm:flex-row items-center gap-2">
-                                <input 
-                                  type="text" 
-                                  value={editCatName} 
-                                  onChange={(e) => setEditCatName(e.target.value)} 
-                                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-fiverr-dark"
-                                />
-                                <input 
-                                  type="text" 
-                                  value={editCatSlug} 
-                                  onChange={(e) => setEditCatSlug(e.target.value)} 
-                                  className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs text-emerald-600 font-mono"
-                                />
-                                <button 
-                                  onClick={() => handleUpdateCategory(cat.id)}
-                                  className="px-3 py-1.5 bg-emerald-600 text-white font-bold rounded-lg text-xs hover:bg-emerald-500"
-                                >
-                                  Save
-                                </button>
-                                <button 
-                                  onClick={() => setEditingCatId(null)}
-                                  className="px-3 py-1.5 bg-slate-200 text-fiverr-dark font-bold rounded-lg text-xs hover:bg-slate-300"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-3">
-                                <span className="text-sm font-bold text-fiverr-dark">{cat.name}</span>
-                                <span className="text-xs text-emerald-700 font-mono bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                                  /categories/{cat.slug}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-
-                          {!isEditingThisCat && (
-                            <div className="flex items-center gap-2">
-                              {/* On/Off Toggle Button */}
-                              <button 
-                                onClick={() => handleToggleCategory(cat.id)}
-                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold uppercase transition-colors ${cat.enabled !== false ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-200 text-fiverr-muted border border-slate-300'}`}
-                              >
-                                {cat.enabled !== false ? '● ON' : '○ OFF'}
-                              </button>
-
-                              <button 
-                                onClick={() => {
-                                  setEditingCatId(cat.id);
-                                  setEditCatName(cat.name);
-                                  setEditCatSlug(cat.slug);
-                                }}
-                                className="px-3 py-1.5 bg-white text-fiverr-dark hover:text-fiverr-dark border border-slate-200 font-bold rounded-lg text-xs hover:bg-slate-100 transition-colors"
-                              >
-                                Edit Category
-                              </button>
-                              <button 
-                                onClick={() => handleDeleteCategory(cat.id, cat.name)}
-                                className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg text-xs hover:bg-red-100 transition-colors flex items-center gap-1"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Delete</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Subcategories List */}
-                        <div className="pl-4 space-y-2">
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs font-bold uppercase tracking-wider text-fiverr-muted">Subcategories</span>
-                            <button 
-                              onClick={() => {
-                                setAddingSubForCatId(addingSubForCatId === cat.id ? null : cat.id);
-                                setNewSubcategoryName('');
-                              }}
-                              className="text-xs font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
-                            >
-                              <PlusCircle className="w-3.5 h-3.5" />
-                              <span>+ Add Subcategory</span>
-                            </button>
-                          </div>
-
-                          {/* Add subcategory inline input */}
-                          {addingSubForCatId === cat.id && (
-                            <div className="flex items-center gap-2 mb-3 bg-white p-2.5 rounded-xl border border-slate-200">
-                              <input 
-                                type="text" 
-                                placeholder="Subcategory name (e.g. Logo Design)..." 
-                                value={newSubcategoryName}
-                                onChange={(e) => setNewSubcategoryName(e.target.value)}
-                                className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-fiverr-dark focus:outline-none"
-                              />
-                              <button 
-                                onClick={() => handleAddSubcategory(cat.id)}
-                                className="px-3 py-1.5 bg-emerald-600 text-white font-bold text-xs rounded-lg hover:bg-emerald-500"
-                              >
-                                Add
-                              </button>
-                              <button 
-                                onClick={() => setAddingSubForCatId(null)}
-                                className="px-3 py-1.5 bg-slate-100 text-fiverr-dark text-xs rounded-lg hover:bg-slate-200"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          )}
-
-                          {cat.subcategories.map(sub => {
-                            const isEditingSub = editingSubId?.catId === cat.id && editingSubId?.subId === sub.id;
-                            const isSubSelected = selectedSubPairs.some(p => p.catId === cat.id && p.subId === sub.id);
-
-                            return (
-                              <div key={sub.id} className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 text-xs">
-                                {isEditingSub ? (
-                                  <div className="flex items-center gap-2 flex-1">
-                                    <input 
-                                      type="text" 
-                                      value={editSubName} 
-                                      onChange={(e) => setEditSubName(e.target.value)} 
-                                      className="px-3 py-1 bg-slate-50 border border-slate-300 rounded text-xs text-fiverr-dark"
-                                    />
-                                    <button 
-                                      onClick={() => handleUpdateSubcategory(cat.id, sub.id)}
-                                      className="px-2.5 py-1 bg-emerald-600 text-white font-bold rounded text-xs"
-                                    >
-                                      Save
-                                    </button>
-                                    <button 
-                                      onClick={() => setEditingSubId(null)}
-                                      className="px-2.5 py-1 bg-slate-100 text-fiverr-dark rounded text-xs"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="flex items-center gap-2.5">
-                                      <input 
-                                        type="checkbox"
-                                        checked={isSubSelected}
-                                        onChange={(e) => {
-                                          if (e.target.checked) {
-                                            setSelectedSubPairs(prev => [...prev, { catId: cat.id, subId: sub.id }]);
-                                          } else {
-                                            setSelectedSubPairs(prev => prev.filter(p => !(p.catId === cat.id && p.subId === sub.id)));
-                                          }
-                                        }}
-                                        className="w-3.5 h-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
-                                      />
-                                      <span className="text-slate-400">•</span>
-                                      <span className="font-semibold text-fiverr-dark">{sub.name}</span>
-                                      <span className="text-[11px] font-mono text-fiverr-muted">(`/categories/${sub.slug}`)</span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                      {/* Subcategory On/Off Toggle */}
-                                      <button 
-                                        onClick={() => handleToggleSubcategory(cat.id, sub.id)}
-                                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase transition-colors ${sub.enabled !== false ? 'bg-emerald-100 text-emerald-800 border border-emerald-300' : 'bg-slate-100 text-fiverr-muted border border-slate-200'}`}
-                                      >
-                                        {sub.enabled !== false ? 'ON' : 'OFF'}
-                                      </button>
-                                      <button 
-                                        onClick={() => {
-                                          setEditingSubId({ catId: cat.id, subId: sub.id });
-                                          setEditSubName(sub.name);
-                                        }}
-                                        className="text-fiverr-muted hover:text-fiverr-dark font-semibold text-[11px]"
-                                      >
-                                        Edit
-                                      </button>
-                                      <button 
-                                        onClick={() => handleDeleteSubcategory(cat.id, sub.id, sub.name)}
-                                        className="text-red-600 hover:text-red-700 font-semibold text-[11px]"
-                                      >
-                                        Delete
-                                      </button>
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
+            <AdminCategoriesModule />
           )}
 
-          {/* MODULE 5: ALL ORDERS MANAGEMENT */}
+          {/* MODULE 6: ALL ORDERS MANAGEMENT */}
           {adminTab === 'orders' && (
-            <AdminOrdersManager
-              orders={orders as any}
-              users={usersList as any}
-              gigs={gigs}
-              currentUser={effectiveAdminUser}
-              onRefreshOrders={fetchAllAdminData}
-              getGigUrl={getGigUrl}
-            />
+            <AdminOrdersModule allOrders={orders} />
           )}
 
-          {/* MODULE 6: PROPOSALS & BIDS MANAGEMENT */}
+          {/* MODULE 7: PROPOSALS & BIDS MANAGEMENT */}
           {adminTab === 'proposals' && (
-            <div className="space-y-6">
-              {/* Filter & Control Header */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-base font-bold text-fiverr-dark flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-emerald-600" />
-                      <span>Proposals & Bidding Management</span>
-                    </h3>
-                    <p className="text-xs text-fiverr-muted mt-0.5">Manage, search, filter, edit, approve, reject, or delete freelancer bids and project relationships.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-fiverr-dark font-mono bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
-                      {proposals.length} Total Bids / Proposals
-                    </span>
-                  </div>
-                </div>
-
-                {/* Search & Filters */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Search */}
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                    <input 
-                      type="text" 
-                      placeholder="Search freelancer, project, cover letter..." 
-                      value={proposalSearchQuery}
-                      onChange={(e) => setProposalSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    />
-                  </div>
-
-                  {/* Status Filter */}
-                  <div>
-                    <select 
-                      value={proposalStatusFilter}
-                      onChange={(e) => setProposalStatusFilter(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      <option value="all">All Statuses</option>
-                      <option value="pending">Pending</option>
-                      <option value="accepted">Accepted</option>
-                      <option value="rejected">Rejected</option>
-                    </select>
-                  </div>
-
-                  {/* Sort Filter */}
-                  <div>
-                    <select 
-                      value={proposalSort}
-                      onChange={(e) => setProposalSort(e.target.value as any)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      <option value="newest">Sort: Newest First</option>
-                      <option value="bid_high">Sort: Bid Amount High-Low</option>
-                      <option value="bid_low">Sort: Bid Amount Low-High</option>
-                    </select>
-                  </div>
-
-                  {/* Bid Range Filter */}
-                  <div className="flex gap-2">
-                    <input 
-                      type="number" 
-                      placeholder="Min $" 
-                      value={proposalBidMinFilter}
-                      onChange={(e) => setProposalBidMinFilter(e.target.value)}
-                      className="w-1/2 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    />
-                    <input 
-                      type="number" 
-                      placeholder="Max $" 
-                      value={proposalBidMaxFilter}
-                      onChange={(e) => setProposalBidMaxFilter(e.target.value)}
-                      className="w-1/2 px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Proposals Table */}
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-fiverr-dark border-b border-slate-200">
-                        <th className="p-4">Freelancer</th>
-                        <th className="p-4">Project / RFP Target</th>
-                        <th className="p-4">Bid Amount & Delivery</th>
-                        <th className="p-4">Status</th>
-                        <th className="p-4">Created At</th>
-                        <th className="p-4 text-right">Admin Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs text-fiverr-dark">
-                      {proposals
-                        .filter(p => {
-                          const q = proposalSearchQuery.toLowerCase();
-                          const proj = projects.find(projItem => projItem.id === p.projectId);
-                          const projectTitle = proj ? proj.title : '';
-                          const matchesSearch = !q || 
-                            p.freelancerName.toLowerCase().includes(q) || 
-                            p.coverLetter.toLowerCase().includes(q) ||
-                            projectTitle.toLowerCase().includes(q);
-                          const matchesStatus = proposalStatusFilter === 'all' || p.status === proposalStatusFilter;
-                          
-                          const minVal = Number(proposalBidMinFilter) || 0;
-                          const maxVal = Number(proposalBidMaxFilter) || Infinity;
-                          const matchesBid = p.bidAmount >= minVal && p.bidAmount <= maxVal;
-
-                          return matchesSearch && matchesStatus && matchesBid;
-                        })
-                        .sort((a, b) => {
-                          if (proposalSort === 'bid_high') return b.bidAmount - a.bidAmount;
-                          if (proposalSort === 'bid_low') return a.bidAmount - b.bidAmount;
-                          return b.id.localeCompare(a.id); // default/newest
-                        })
-                        .map(p => {
-                          const proj = projects.find(projItem => projItem.id === p.projectId);
-                          return (
-                            <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
-                              <td className="p-4">
-                                <div className="flex items-center gap-3">
-                                  <img src={p.freelancerAvatar} className="w-10 h-10 rounded-full object-cover ring-1 ring-slate-200 shrink-0" />
-                                  <div>
-                                    <span className="font-bold text-fiverr-dark text-sm block">{p.freelancerName}</span>
-                                    <span className="text-[11px] text-fiverr-muted truncate max-w-[150px] block">{p.freelancerTitle}</span>
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="p-4">
-                                {proj ? (
-                                  <div>
-                                    <span className="font-semibold text-fiverr-dark block text-xs truncate max-w-[220px]">{proj.title}</span>
-                                    <span className="text-[10px] text-fiverr-muted font-mono block mt-0.5">Project ID: #{proj.id} · Buyer: {proj.buyerName}</span>
-                                  </div>
-                                ) : (
-                                  <span className="text-red-600 font-semibold">Unknown / Deleted Project</span>
-                                )}
-                              </td>
-                              <td className="p-4">
-                                <span className="font-bold text-emerald-600 block text-sm">${p.bidAmount.toLocaleString()}</span>
-                                <span className="text-[11px] text-fiverr-muted">{p.deliveryDays} Days Delivery</span>
-                              </td>
-                              <td className="p-4">
-                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase border ${
-                                  p.status === 'accepted' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                  p.status === 'rejected' ? 'bg-red-50 text-red-700 border-red-200' :
-                                  'bg-amber-50 text-amber-700 border-amber-200'
-                                }`}>
-                                  {p.status}
-                                </span>
-                              </td>
-                              <td className="p-4 font-mono text-[11px] text-fiverr-muted">
-                                {p.createdAt || '2026-10-02'}
-                              </td>
-                              <td className="p-4 text-right space-x-1.5 whitespace-nowrap">
-                                {/* View Proposal Details */}
-                                <button 
-                                  onClick={() => setViewingProposal(p)}
-                                  className="px-2.5 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px]"
-                                  title="View complete cover letter & details"
-                                >
-                                  <Eye className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>View</span>
-                                </button>
-
-                                {/* Edit Proposal */}
-                                <button 
-                                  onClick={() => handleOpenEditProposalModal(p)}
-                                  className="px-2.5 py-1.5 bg-slate-50 text-fiverr-dark border border-slate-200 font-bold rounded-lg hover:bg-slate-100 transition-colors inline-flex items-center gap-1 text-[11px]"
-                                  title="Edit bid parameters"
-                                >
-                                  <Settings className="w-3.5 h-3.5 text-indigo-600" />
-                                  <span>Edit</span>
-                                </button>
-
-                                {/* Quick Accept */}
-                                {p.status !== 'accepted' && (
-                                  <button 
-                                    onClick={() => handleUpdateProposalStatus(p.id, 'accepted')}
-                                    className="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold rounded-lg hover:bg-emerald-100 text-[11px]"
-                                    title="Accept Proposal"
-                                  >
-                                    Accept
-                                  </button>
-                                )}
-
-                                {/* Quick Reject */}
-                                {p.status !== 'rejected' && (
-                                  <button 
-                                    onClick={() => handleUpdateProposalStatus(p.id, 'rejected')}
-                                    className="px-2.5 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px]"
-                                    title="Reject Proposal"
-                                  >
-                                    Reject
-                                  </button>
-                                )}
-
-                                {/* Delete */}
-                                <button 
-                                  onClick={() => handleDeleteProposal(p.id)}
-                                  className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold rounded-lg hover:bg-red-100 text-[11px]"
-                                  title="Delete Proposal"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      {proposals.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="p-8 text-center text-slate-400">No proposals or bids recorded in the platform database.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {/* VIEW PROPOSAL DETAILS MODAL */}
-              {viewingProposal && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-2xl w-full space-y-6 max-h-[90vh] overflow-y-auto text-slate-800 shadow-2xl">
-                    <div className="flex items-start justify-between pb-4 border-b border-slate-100">
-                      <div>
-                        <h3 className="text-lg font-bold text-fiverr-dark">Proposal #{viewingProposal.id} Details</h3>
-                        <p className="text-xs text-fiverr-muted mt-0.5">Submitted by <span className="text-emerald-600 font-semibold">{viewingProposal.freelancerName}</span></p>
-                      </div>
-                      <button 
-                        onClick={() => setViewingProposal(null)}
-                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-fiverr-dark text-xs font-bold rounded-xl"
-                      >
-                        Close
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-200 text-center text-xs">
-                      <div>
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block mb-1">Bid Amount</span>
-                        <span className="text-lg font-bold text-emerald-600">${viewingProposal.bidAmount}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block mb-1">Delivery Time</span>
-                        <span className="text-lg font-bold text-fiverr-dark">{viewingProposal.deliveryDays} Days</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-fiverr-muted uppercase font-bold block mb-1">Current Status</span>
-                        <span className="text-lg font-bold text-indigo-600 uppercase">{viewingProposal.status}</span>
-                      </div>
-                    </div>
-
-                    {/* Freelancer Profile Shortcard */}
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex items-center gap-3">
-                      <img src={viewingProposal.freelancerAvatar} className="w-12 h-12 rounded-full object-cover ring-2 ring-emerald-500/20 shrink-0" />
-                      <div>
-                        <span className="text-sm font-bold text-fiverr-dark block">{viewingProposal.freelancerName}</span>
-                        <span className="text-xs text-fiverr-muted">{viewingProposal.freelancerTitle}</span>
-                        <span className="text-[10px] text-slate-400 block mt-0.5">ID: {viewingProposal.freelancerId}</span>
-                      </div>
-                    </div>
-
-                    {/* Target Project Card */}
-                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-                      <span className="text-[10px] text-fiverr-muted font-bold uppercase block mb-1.5">Project / Bid Relationship Target</span>
-                      {projects.find(pr => pr.id === viewingProposal.projectId) ? (
-                        <div>
-                          <span className="text-xs font-bold text-fiverr-dark block mb-1">{projects.find(pr => pr.id === viewingProposal.projectId)?.title}</span>
-                          <span className="text-[11px] text-fiverr-muted">Budget Range: <span className="text-emerald-600 font-semibold">${projects.find(pr => pr.id === viewingProposal.projectId)?.budgetMin} - ${projects.find(pr => pr.id === viewingProposal.projectId)?.budgetMax}</span></span>
-                        </div>
-                      ) : (
-                        <span className="text-red-600 text-xs font-semibold">Referenced project has been deleted or suspended.</span>
-                      )}
-                    </div>
-
-                    {/* Description/Cover Letter */}
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-2 text-xs">
-                      <h4 className="text-[11px] font-bold text-fiverr-muted uppercase">Cover Letter & Description / Milestones</h4>
-                      <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{viewingProposal.coverLetter}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* EDIT PROPOSAL MODAL */}
-              {editingProposal && (
-                <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
-                  <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-xl w-full space-y-5 text-slate-800 shadow-2xl">
-                    <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                      <h3 className="text-lg font-bold text-fiverr-dark">Edit Bid Parameters — Proposal #{editingProposal.id}</h3>
-                      <button 
-                        onClick={() => setEditingProposal(null)}
-                        className="text-slate-400 hover:text-fiverr-dark text-xs font-bold"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-
-                    <form onSubmit={handleSaveEditProposal} className="space-y-4 text-xs">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Bid Amount ($)</label>
-                          <input 
-                            type="number" 
-                            value={editProposalForm.bidAmount}
-                            onChange={(e) => setEditProposalForm(prev => ({ ...prev, bidAmount: Number(e.target.value) }))}
-                            required
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-fiverr-dark font-bold uppercase mb-1">Delivery Time (Days)</label>
-                          <input 
-                            type="number" 
-                            value={editProposalForm.deliveryDays}
-                            onChange={(e) => setEditProposalForm(prev => ({ ...prev, deliveryDays: Number(e.target.value) }))}
-                            required
-                            className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Proposal Status</label>
-                        <select 
-                          value={editProposalForm.status}
-                          onChange={(e) => setEditProposalForm(prev => ({ ...prev, status: e.target.value as any }))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="accepted">Accepted</option>
-                          <option value="rejected">Rejected</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-fiverr-dark font-bold uppercase mb-1">Cover Letter & Milestones / Deliverables</label>
-                        <textarea 
-                          rows={6}
-                          value={editProposalForm.coverLetter}
-                          onChange={(e) => setEditProposalForm(prev => ({ ...prev, coverLetter: e.target.value }))}
-                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                        />
-                      </div>
-
-                      <div className="pt-4 flex items-center justify-end gap-3">
-                        <button 
-                          type="button"
-                          onClick={() => setEditingProposal(null)}
-                          className="px-4 py-2 bg-slate-100 text-fiverr-dark font-bold rounded-xl hover:bg-slate-200"
-                        >
-                          Cancel
-                        </button>
-                        <button 
-                          type="submit"
-                          className="px-5 py-2 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-500 shadow-xs"
-                        >
-                          Save Proposal
-                        </button>
-                      </div>
-                    </form>
-                  </div>
-                </div>
-              )}
-            </div>
+            <AdminProposalsModule />
           )}
 
-          {/* MODULE 10: USER WALLETS & DOUBLE-ENTRY LEDGER */}
-          {adminTab === 'wallet' && (
-            <UserWalletsLedgerModule currentUser={effectiveAdminUser} />
+          {/* MODULE 8: CONTRACTS & MILESTONES */}
+          {adminTab === 'contracts' && (
+            <AdminContractsModule />
           )}
 
-          {/* MODULE 12: PAYMENTS & EARNINGS */}
+          {/* MODULE 9: PAYMENTS */}
           {adminTab === 'payments' && (
-            <PaymentsModule 
-              gigs={gigs} 
-              orders={orders} 
-              projects={projects} 
-              proposals={proposals} 
-              currentUser={effectiveAdminUser} 
-              onBalanceUpdate={fetchAllAdminData}
-            />
+            <AdminPaymentsModule />
           )}
 
-          {/* MODULE 11: ESCROW MANAGEMENT (MANDATORY 14-DAY PROTECTION) */}
+          {/* MODULE 10: USER WALLETS */}
+          {adminTab === 'wallet' && (
+            <AdminWalletModule />
+          )}
+
+          {/* MODULE 11: ESCROW MANAGEMENT */}
           {adminTab === 'escrow' && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-              <div className="flex items-center justify-between mb-4">
-                <div>
-                  <h3 className="text-base font-bold text-fiverr-dark">Escrow Protection Vault</h3>
-                  <p className="text-xs text-fiverr-muted">Enforcing mandatory 14-day protection window on all milestone funds.</p>
-                </div>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200">
-                  {escrowProtectionDays}-Day Lock Policy
-                </span>
-              </div>
-
-              {orders.map(ord => (
-                <div key={ord.id} className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      {(() => {
-                        const targetUrl = ord.serviceUrl || (ord.gigId && gigs.find(g => g.id === ord.gigId) ? getGigUrl(gigs.find(g => g.id === ord.gigId)!) : (ord.id === 'ord_bk' ? '/broadcastking/create-an-amazing-promotional-explainer-video-a-puppet' : ord.id === 'ord_bushra' ? '/bushra/i-will-increase-ahrefs-domain-rating-dr-70-using-high-authority-seo-backlinks' : '/elena_rostova/i-will-build-a-high-performance-full-stack-web-app-in-react-and-node'));
-                        return (
-                          <div className="flex items-center gap-1.5">
-                            <a
-                              href={targetUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs font-bold text-fiverr-dark hover:text-emerald-600 transition-colors inline-flex items-center gap-1 group"
-                              title={`View "${ord.title}" in new tab`}
-                            >
-                              <span className="group-hover:underline">{ord.title}</span>
-                              <ExternalLink className="w-3 h-3 text-emerald-600 shrink-0" />
-                            </a>
-                          </div>
-                        );
-                      })()}
-                      <span className="text-[11px] text-fiverr-muted">Buyer ID: {ord.buyerId} · Seller ID: {ord.sellerId}</span>
-                    </div>
-                    <span className="text-base font-bold text-emerald-600">${ord.amount}</span>
-                  </div>
-
-                  <div className="bg-white p-3 rounded-xl border border-slate-200 flex items-center justify-between text-xs text-fiverr-dark">
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">Protection Start</span>
-                      <span className="font-mono font-medium">{ord.escrowProtectionStartDate || '2026-10-05'}</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block text-[10px]">Protection End (14 Days)</span>
-                      <span className="font-mono text-emerald-600 font-bold">{ord.escrowProtectionEndDate || '2026-10-19'}</span>
-                    </div>
-                    <button 
-                      onClick={() => {
-                        setOrders(prev => prev.map(o => o.id === ord.id ? { ...o, status: 'completed' } : o));
-                        alert(`Escrow released for order #${ord.id}`);
-                      }}
-                      className="px-3.5 py-1.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-500 shadow-xs"
-                    >
-                      Release Funds
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <AdminEscrowModule escrowAccounts={orders} />
           )}
 
-          {/* MODULE 7: PAYOUT MANAGEMENT */}
-          {adminTab === 'payouts' && (
-            <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-xs">
-                <h3 className="text-lg font-bold text-fiverr-dark mb-2">Payout Management</h3>
-                <p className="text-xs text-fiverr-muted">Manage freelancer payouts, statuses, and prevent duplicates.</p>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 overflow-x-auto shadow-xs">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="text-fiverr-muted text-xs uppercase font-bold border-b border-slate-100">
-                      <th className="p-3">Freelancer ID</th>
-                      <th className="p-3">Amount</th>
-                      <th className="p-3">Status</th>
-                      <th className="p-3 text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs text-fiverr-dark">
-                    {payouts.map(p => (
-                      <tr key={p.id}>
-                        <td className="p-3">{p.freelancerId}</td>
-                        <td className="p-3 font-bold">${p.amount}</td>
-                        <td className="p-3 capitalize">
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                            p.status === 'approved' ? 'bg-emerald-50 text-emerald-700' :
-                            p.status === 'pending' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-fiverr-dark'
-                          }`}>
-                            {p.status}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right space-x-2">
-                          {p.status === 'pending' && (
-                            <>
-                              <button onClick={() => handleApprovePayout(p.id)} className="text-emerald-600 font-bold hover:text-emerald-700">Approve</button>
-                              <button onClick={() => handleFailPayout(p.id)} className="text-red-600 font-bold hover:text-red-700">Fail</button>
-                            </>
-                          )}
-                          {p.status === 'approved' && (
-                            <button onClick={() => handleProcessPayout(p.id)} className="text-blue-600 font-bold hover:text-blue-700">Process</button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {/* MODULE 11: DISPUTE MANAGEMENT */}
+          {/* MODULE 12: DISPUTES */}
           {adminTab === 'disputes' && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-              <h3 className="text-base font-bold text-fiverr-dark mb-4">Escrow Dispute Investigation Desk</h3>
-              {disputes.length === 0 ? (
-                <div className="p-10 text-center rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-400">
-                  No disputes opened. Marketplace escrow has 0 active disputes requiring resolution.
-                </div>
-              ) : (
-                disputes.map(disp => (
-                  <div key={disp.id} className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-fiverr-dark">Dispute #{disp.id} on Order #{disp.orderId}: {orders.find(o => o.id === disp.orderId)?.title || 'Unknown Order'}</span>
-                      <span className="text-xs font-bold uppercase text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded">
-                        {disp.status.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-fiverr-dark bg-white p-3 rounded-xl border border-slate-200">
-                      <strong className="text-fiverr-dark">Reason:</strong> {disp.reason}
-                    </p>
-
-                    <div className="flex items-center gap-3">
-                      <button 
-                        onClick={() => handleResolveDispute(disp.id, 'resolved_refund')}
-                        className="px-3 py-1.5 bg-red-50 text-red-700 border border-red-200 font-bold text-xs rounded-lg hover:bg-red-100"
-                      >
-                        Full Refund to Buyer
-                      </button>
-                      <button 
-                        onClick={() => handleResolveDispute(disp.id, 'resolved_release')}
-                        className="px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold text-xs rounded-lg hover:bg-emerald-100"
-                      >
-                        Release Escrow to Seller
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <AdminDisputesModule />
           )}
 
-          {/* MODULE 17: SUPPORT TICKETS */}
+          {/* MODULE 13: REFUNDS */}
+          {adminTab === 'refunds' && (
+            <AdminRefundsModule />
+          )}
+
+          {/* MODULE 14: PAYOUTS */}
+          {adminTab === 'payouts' && (
+            <AdminPayoutsModule />
+          )}
+
+          {/* MODULE 15: REVIEWS */}
+          {adminTab === 'reviews' && (
+            <AdminReviewsModule />
+          )}
+
+          {/* MODULE 16: MESSAGES */}
+          {adminTab === 'messages' && (
+            <AdminMessagesModule />
+          )}
+
+          {/* MODULE 17: REPORTS */}
+          {adminTab === 'reports' && (
+            <AdminReportsModule />
+          )}
+
+          {/* MODULE 18: SUPPORT TICKETS */}
           {adminTab === 'support' && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-4 shadow-xs">
-              <h3 className="text-base font-bold text-fiverr-dark mb-4">Support Ticket Help Desk</h3>
-              {supportTickets.length === 0 ? (
-                <div className="p-10 text-center rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-400">
-                  No open support tickets. All customer inquiries are resolved (0 open tickets).
-                </div>
-              ) : (
-                supportTickets.map(ticket => (
-                  <div key={ticket.id} className="p-5 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-bold text-fiverr-dark block">{ticket.subject}</span>
-                        <span className="text-xs text-fiverr-muted">User: {ticket.userName} · Priority: {ticket.priority}</span>
-                      </div>
-                      <span className="text-xs font-bold text-emerald-700 uppercase bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded">
-                        {ticket.status}
-                      </span>
-                    </div>
-
-                    <div className="space-y-2 max-h-40 overflow-y-auto bg-white p-3 rounded-xl border border-slate-200 text-xs">
-                      {ticket.messages.map((m, idx) => (
-                        <div key={idx} className="text-fiverr-dark">
-                          <strong className="text-fiverr-dark">{m.sender}:</strong> {m.text}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="text" 
-                        placeholder="Type staff reply..." 
-                        value={ticketReplyText}
-                        onChange={(e) => setTicketReplyText(e.target.value)}
-                        className="flex-1 px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500"
-                      />
-                      <button 
-                        onClick={() => handleSupportReply(ticket.id)}
-                        className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-500 shadow-xs"
-                      >
-                        Reply Ticket
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
+            <AdminSupportModule />
           )}
 
-          {/* MODULE 20: SITE & FEE SETTINGS */}
+          {/* MODULE 19: CMS */}
+          {adminTab === 'cms' && (
+            <AdminCmsModule />
+          )}
+
+          {/* MODULE 20: SETTINGS */}
           {adminTab === 'settings' && (
-            <SiteFeeSettingsModule
-              currentUser={effectiveAdminUser}
-              onSettingsSaved={(newSettings) => {
-                setPlatformFee(newSettings.freelancerCommissionRate);
-                setEscrowProtectionDays(newSettings.escrowHoldDays);
-                fetchAllAdminData();
-              }}
-            />
+            <AdminSettingsModule />
           )}
 
-          {/* MODULE 21: ACTIVITY & AUDIT TRAIL */}
+          {/* MODULE 21: ACTIVITY & AUDIT */}
           {(adminTab === 'security' || adminTab === 'activity') && (
-            <div className="space-y-6">
-              <div className="bg-white border border-slate-200 rounded-3xl p-6 space-y-6 shadow-xs">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-100">
-                  <div>
-                    <h3 className="text-base font-bold text-fiverr-dark flex items-center gap-2">
-                      <Activity className="w-5 h-5 text-emerald-600" />
-                      <span>Admin Activity Logs & Audit Trail</span>
-                    </h3>
-                    <p className="text-xs text-fiverr-muted mt-0.5">Real-time audit log of all administrative actions, user status changes, impersonation sessions, and category modifications.</p>
-                  </div>
-                  <button 
-                    onClick={fetchAllAdminData}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 hover:bg-slate-100 text-fiverr-dark text-xs font-semibold rounded-xl border border-slate-200 transition-colors"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Refresh Activity Stream</span>
-                  </button>
-                </div>
-
-                {/* Activity Stats Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-                    <span className="text-[10px] uppercase font-bold text-fiverr-muted tracking-wider">Total Actions Logged</span>
-                    <div className="text-xl font-bold text-fiverr-dark mt-1">{auditLogs.length}</div>
-                  </div>
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
-                    <span className="text-[10px] uppercase font-bold text-amber-700 tracking-wider">User Governance</span>
-                    <div className="text-xl font-bold text-amber-800 mt-1">
-                      {auditLogs.filter(l => l.action.includes('USER')).length}
-                    </div>
-                  </div>
-                  <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-2xl">
-                    <span className="text-[10px] uppercase font-bold text-indigo-700 tracking-wider">Impersonation Audits</span>
-                    <div className="text-xl font-bold text-indigo-800 mt-1">
-                      {auditLogs.filter(l => l.action.includes('IMPERSONAT')).length}
-                    </div>
-                  </div>
-                  <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl">
-                    <span className="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">Category Operations</span>
-                    <div className="text-xl font-bold text-emerald-800 mt-1">
-                      {auditLogs.filter(l => l.action.includes('CATEGORY')).length}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Search & Filter Bar */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="relative">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
-                    <input 
-                      type="text" 
-                      placeholder="Search activity action, actor, target, or details..." 
-                      value={activitySearchQuery}
-                      onChange={(e) => setActivitySearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark placeholder-slate-400 focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    />
-                  </div>
-
-                  <div>
-                    <select 
-                      value={activityActionFilter}
-                      onChange={(e) => setActivityActionFilter(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-fiverr-dark focus:outline-none focus:border-emerald-500 focus:bg-white"
-                    >
-                      <option value="all">All Administrative Actions</option>
-                      <option value="user_status">User Status (Suspend / Restrict)</option>
-                      <option value="impersonated">Admin Impersonations</option>
-                      <option value="category">Category / Subcategory Edits</option>
-                      <option value="dispute">Dispute Resolutions</option>
-                      <option value="support">Support Ticket Replies</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Activity Logs Table */}
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b border-slate-200 text-fiverr-muted uppercase text-[10px] tracking-wider font-bold bg-slate-50">
-                        <th className="py-3 px-4">Timestamp</th>
-                        <th className="py-3 px-4">Admin Actor</th>
-                        <th className="py-3 px-4">Action Type</th>
-                        <th className="py-3 px-4">Target Entity</th>
-                        <th className="py-3 px-4">Activity Details</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {auditLogs
-                        .filter(log => {
-                          const query = activitySearchQuery.toLowerCase().trim();
-                          const matchesQuery = !query || 
-                            log.action.toLowerCase().includes(query) ||
-                            log.actor.toLowerCase().includes(query) ||
-                            log.target.toLowerCase().includes(query) ||
-                            log.details.toLowerCase().includes(query);
-
-                          let matchesFilter = true;
-                          if (activityActionFilter === 'user_status') matchesFilter = log.action.includes('STATUS') || log.action.includes('SUSPEND') || log.action.includes('RESTRICT');
-                          else if (activityActionFilter === 'impersonated') matchesFilter = log.action.includes('IMPERSONAT');
-                          else if (activityActionFilter === 'category') matchesFilter = log.action.includes('CATEGORY');
-                          else if (activityActionFilter === 'dispute') matchesFilter = log.action.includes('DISPUTE');
-                          else if (activityActionFilter === 'support') matchesFilter = log.action.includes('SUPPORT') || log.action.includes('TICKET');
-
-                          return matchesQuery && matchesFilter;
-                        })
-                        .map(log => {
-                          let badgeBg = 'bg-slate-100 text-fiverr-dark border-slate-200';
-                          if (log.action.includes('SUSPEND') || log.action.includes('DELETED')) badgeBg = 'bg-red-50 text-red-700 border-red-200';
-                          else if (log.action.includes('RESTRICT')) badgeBg = 'bg-amber-50 text-amber-700 border-amber-200';
-                          else if (log.action.includes('IMPERSONAT')) badgeBg = 'bg-indigo-50 text-indigo-700 border-indigo-200';
-                          else if (log.action.includes('CREATED') || log.action.includes('VERIFIED')) badgeBg = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                          else if (log.action.includes('RESOLVED') || log.action.includes('UPDATED')) badgeBg = 'bg-blue-50 text-blue-700 border-blue-200';
-
-                          return (
-                            <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
-                              <td className="py-3 px-4 text-fiverr-muted font-mono text-[11px] whitespace-nowrap">{log.timestamp}</td>
-                              <td className="py-3 px-4 font-bold text-fiverr-dark">
-                                <div>{log.actor}</div>
-                                <span className="text-[10px] text-slate-400 uppercase">{log.role}</span>
-                              </td>
-                              <td className="py-3 px-4 whitespace-nowrap">
-                                <span className={`inline-block px-2.5 py-1 rounded-md text-[10px] font-bold uppercase border ${badgeBg}`}>
-                                  {log.action}
-                                </span>
-                              </td>
-                              <td className="py-3 px-4 font-semibold text-slate-800 whitespace-nowrap">{log.target}</td>
-                              <td className="py-3 px-4 text-fiverr-dark">{log.details}</td>
-                            </tr>
-                          );
-                        })
-                      }
-                    </tbody>
-                  </table>
-                  {auditLogs.length === 0 && (
-                    <div className="p-8 text-center text-slate-400 text-xs">No admin activity records logged yet.</div>
-                  )}
-                </div>
-              </div>
-            </div>
+            <AdminActivityModule />
           )}
 
           {/* FALLBACK FOR OTHER MODULES */}
@@ -5059,6 +2857,102 @@ export default function App() {
           </div>
 
           <nav className="hidden lg:flex items-center gap-7 text-[13.5px] font-medium text-fiverr-dark">
+            {/* CATEGORIES AUTO DROPDOWN LINK */}
+            <div 
+              className="relative"
+              onMouseEnter={handleHeaderCategoriesMouseEnter}
+              onMouseLeave={handleHeaderCategoriesMouseLeave}
+            >
+              <button 
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+                  setIsHeaderCategoriesDropdownOpen(!isHeaderCategoriesDropdownOpen);
+                }}
+                className={`transition-colors hover:text-emerald-700 py-1 inline-flex items-center gap-1 cursor-pointer font-medium ${isCategoryRoute ? 'text-emerald-600 font-bold border-b-2 border-emerald-600' : 'text-fiverr-dark'}`}
+              >
+                <span>Categories</span>
+                <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isHeaderCategoriesDropdownOpen ? 'rotate-180 text-emerald-600' : ''}`} />
+              </button>
+
+              {isHeaderCategoriesDropdownOpen && (
+                <div 
+                  className="absolute left-0 top-full -mt-0.5 pt-2 w-[720px] z-[120] animate-in fade-in duration-150"
+                  onMouseEnter={handleHeaderCategoriesMouseEnter}
+                  onMouseLeave={handleHeaderCategoriesMouseLeave}
+                >
+                  <div className="bg-white rounded-2xl shadow-2xl border border-slate-200/90 p-4.5 font-sans text-xs">
+                    <div className="px-2 pb-2.5 mb-3 border-b border-slate-100 flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                        Browse All Categories
+                      </span>
+                      <a 
+                        href="/gigs" 
+                        onClick={(e) => { 
+                          if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+                          setIsHeaderCategoriesDropdownOpen(false); 
+                          navigate('/gigs', e); 
+                        }}
+                        className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 hover:underline flex items-center gap-1"
+                      >
+                        Explore All Gigs →
+                      </a>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 max-h-[440px] overflow-y-auto p-1">
+                      {PPH_CATEGORIES.map((cat) => (
+                        <div key={cat.slug} className="p-3 rounded-xl hover:bg-emerald-50/40 hover:border-emerald-200/80 transition-all border border-slate-100 group">
+                          <a 
+                            href={`/categories/${cat.slug}`}
+                            onClick={(e) => { 
+                              if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+                              setIsHeaderCategoriesDropdownOpen(false); 
+                              navigate(`/categories/${cat.slug}`, e); 
+                            }}
+                            className="font-bold text-slate-900 group-hover:text-emerald-600 text-[13px] block mb-1.5 flex items-center justify-between"
+                          >
+                            <span>{cat.name}</span>
+                            <span className="text-slate-300 group-hover:text-emerald-600 text-xs transition-colors">→</span>
+                          </a>
+                          <div className="flex flex-wrap gap-x-2.5 gap-y-1 text-[11.5px] text-slate-500">
+                            {cat.subcategories.slice(0, 5).map((sub) => (
+                              <a
+                                key={sub.slug}
+                                href={`/categories/${sub.slug}`}
+                                onClick={(e) => { 
+                                  if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+                                  setIsHeaderCategoriesDropdownOpen(false); 
+                                  navigate(`/categories/${sub.slug}`, e); 
+                                }}
+                                className="hover:text-emerald-600 hover:underline cursor-pointer"
+                              >
+                                {sub.name}
+                              </a>
+                            ))}
+                            {cat.subcategories.length > 5 && (
+                              <a
+                                href={`/categories/${cat.slug}`}
+                                onClick={(e) => { 
+                                  if (headerCategoriesTimeoutRef.current) clearTimeout(headerCategoriesTimeoutRef.current);
+                                  setIsHeaderCategoriesDropdownOpen(false); 
+                                  navigate(`/categories/${cat.slug}`, e); 
+                                }}
+                                className="text-emerald-600 font-bold hover:underline cursor-pointer"
+                              >
+                                +{cat.subcategories.length - 5} more
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <a 
               href="/gigs" 
               onClick={(e) => navigate('/gigs', e)}
@@ -5152,7 +3046,7 @@ export default function App() {
           </div>
 
           <button 
-            onClick={() => setIsWishlistModalOpen(true)} 
+            onClick={(e) => navigate('/wishlist', e)} 
             className="p-2 text-fiverr-dark hover:text-fiverr-dark rounded-full hover:bg-slate-100 transition-colors relative cursor-pointer"
             title="Wishlist / Liked Gigs"
           >
@@ -5172,7 +3066,7 @@ export default function App() {
                 if (!currentUser) {
                   const restored = await loadUserSession();
                   if (!restored) {
-                    setIsLoginModalOpen(true);
+                    navigate('/login', e);
                     return;
                   }
                 }
@@ -5201,7 +3095,7 @@ export default function App() {
                         if (!currentUser) {
                           const restored = await loadUserSession();
                           if (!restored) {
-                            setIsLoginModalOpen(true);
+                            navigate('/login');
                             return;
                           }
                         }
@@ -5242,7 +3136,7 @@ export default function App() {
           </div>
 
           <button 
-            onClick={() => setIsEmailModalOpen(true)} 
+            onClick={(e) => navigate('/notifications', e)} 
             className="p-2 text-fiverr-dark hover:text-fiverr-dark rounded-full hover:bg-slate-100 transition-colors relative cursor-pointer"
             title="Notifications"
           >
@@ -5252,8 +3146,8 @@ export default function App() {
 
           {!currentUser ? (
             <>
-              <button onClick={() => setIsLoginModalOpen(true)} className="px-4 py-2 text-[13.5px] font-semibold text-fiverr-dark hover:text-fiverr-dark">Login</button>
-              <button onClick={() => setIsSignupModalOpen(true)} className="px-4 py-2 text-[13.5px] font-semibold text-white bg-emerald-500 rounded-lg hover:bg-emerald-600">Sign Up</button>
+              <button onClick={(e) => navigate('/login', e)} className="px-4 py-2 text-[13.5px] font-semibold text-fiverr-dark hover:text-fiverr-dark cursor-pointer">Login</button>
+              <button onClick={(e) => navigate('/signup', e)} className="px-4 py-2 text-[13.5px] font-semibold text-white bg-emerald-500 rounded-lg hover:bg-emerald-600 cursor-pointer">Sign Up</button>
             </>
           ) : (
             <div className="relative pl-2 border-l border-slate-200">
@@ -5311,24 +3205,49 @@ export default function App() {
                     <span>Post Gig</span>
                   </button>
 
-                  <button 
-                    onClick={(e) => { 
-                      setIsUserDropdownOpen(false); 
-                      const uSlug = slugify(currentUser.name);
-                      navigate(`/${uSlug}`, e); 
-                    }} 
-                    className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <Sparkles className="w-4 h-4 text-emerald-600" />
-                    <span>★ Feature Gigs ($10 / 7d)</span>
-                  </button>
+
 
                   <button 
-                    onClick={(e) => { setIsUserDropdownOpen(false); navigate('/gigs', e); }} 
+                    onClick={(e) => { setIsUserDropdownOpen(false); navigate('/orders', e); }} 
                     className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
                   >
                     <LayoutDashboard className="w-4 h-4 text-emerald-600" />
                     <span>Dashboard</span>
+                  </button>
+
+                  <div className="w-full px-3 py-1.5 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center justify-between transition group">
+                    <button 
+                      onClick={(e) => { 
+                        setIsUserDropdownOpen(false); 
+                        const pUrl = `/${slugify(currentUser.name)}`;
+                        navigate(pUrl, e); 
+                      }} 
+                      className="flex items-center gap-2.5 flex-1 text-left cursor-pointer py-0.5"
+                    >
+                      <User className="w-4 h-4 text-emerald-600" />
+                      <span>Profile</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setIsUserDropdownOpen(false);
+                        navigate('/edit-profile', e);
+                      }}
+                      className="px-2 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 hover:border-emerald-400 text-[11px] font-bold rounded-md flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                      title="Edit Profile"
+                    >
+                      <Pencil className="w-3 h-3 text-emerald-600" />
+                      <span>Edit</span>
+                    </button>
+                  </div>
+
+                  <button 
+                    onClick={(e) => { setIsUserDropdownOpen(false); navigate('/projects', e); }} 
+                    className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Briefcase className="w-4 h-4 text-indigo-600" />
+                    <span>Buyer Activity</span>
                   </button>
 
                   <button 
@@ -5337,26 +3256,6 @@ export default function App() {
                   >
                     <Briefcase className="w-4 h-4 text-emerald-600" />
                     <span>Freelancer Activity</span>
-                  </button>
-
-                  <button 
-                    onClick={(e) => { 
-                      setIsUserDropdownOpen(false); 
-                      const pUrl = `/${slugify(currentUser.name)}`;
-                      navigate(pUrl, e); 
-                    }} 
-                    className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <User className="w-4 h-4 text-emerald-600" />
-                    <span>Profile</span>
-                  </button>
-
-                  <button 
-                    onClick={(e) => { setIsUserDropdownOpen(false); navigate('/projects', e); }} 
-                    className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
-                  >
-                    <Briefcase className="w-4 h-4 text-indigo-600" />
-                    <span>Buyer Activity</span>
                   </button>
 
 
@@ -5369,7 +3268,18 @@ export default function App() {
                   </button>
 
                   <button 
-                    onClick={() => { setIsUserDropdownOpen(false); setIsSupportModalOpen(true); }} 
+                    onClick={(e) => { 
+                      setIsUserDropdownOpen(false); 
+                      navigate('/settings', e);
+                    }} 
+                    className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Settings className="w-4 h-4 text-emerald-600" />
+                    <span>Settings</span>
+                  </button>
+
+                  <button 
+                    onClick={(e) => { setIsUserDropdownOpen(false); navigate('/support', e); }} 
                     className="w-full text-left px-3 py-2 rounded-xl hover:bg-slate-50 text-fiverr-dark font-semibold flex items-center gap-2.5 transition cursor-pointer"
                   >
                     <HelpCircle className="w-4 h-4 text-amber-600" />
@@ -5412,6 +3322,12 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {/* PeoplePerHour Category Navigation Bar */}
+      <HeaderCategoriesNav 
+        navigate={navigate}
+        currentCategory={currentCategory}
+      />
 
 
 
@@ -5717,56 +3633,17 @@ export default function App() {
         )}
 
         {/* VIEW: FREELANCER TALENT DIRECTORY (/freelancers) */}
-        {path === '/freelancers' && (
-          <div className="max-w-6xl mx-auto space-y-8 font-sans">
-            <div className="bg-slate-900 text-white rounded-3xl p-8 md:p-12 relative overflow-hidden shadow-xl">
-              <div className="relative z-10 max-w-2xl space-y-4">
-                <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 rounded-full text-xs font-bold border border-emerald-500/30">
-                  Verified Top Talent
-                </span>
-                <h1 className="text-3xl md:text-4xl font-bold leading-tight text-fiverr-dark">Hire Expert Freelancers & Request Proposals</h1>
-                <p className="text-fiverr-muted text-sm">Browse elite developers, designers, animators, and SEO specialists. Send direct proposal requests and start secure escrow workstreams.</p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {usersList.filter(u => u.role !== 'admin').map(user => (
-                <div key={user.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col justify-between space-y-4 hover:shadow-xl transition-all">
-                  <div className="flex items-center gap-4">
-                    <img src={user.avatar} alt={user.name} className="w-16 h-16 rounded-full object-cover ring-2 ring-slate-100" />
-                    <div>
-                      <h3 className="text-base font-bold text-fiverr-dark">{user.name}</h3>
-                      <span className="text-xs text-fiverr-muted block">@{user.username || slugify(user.name)}</span>
-                      <div className="flex items-center gap-1 text-xs font-bold text-amber-500 mt-1">
-                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                        <span>{user.rating}</span>
-                        <span className="text-slate-400 font-normal">({user.reviewsCount} reviews)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-fiverr-dark line-clamp-2">{user.title || user.bio || 'Verified Professional Freelancer'}</p>
-
-                  <div className="flex flex-wrap gap-1">
-                    {(user.skills || ['React', 'Node.js', 'UI/UX']).slice(0, 3).map((skill, idx) => (
-                      <span key={idx} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-fiverr-dark">{skill}</span>
-                    ))}
-                  </div>
-
-                  <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-xs font-bold text-fiverr-dark">${user.hourlyRate || 50}/hr</span>
-                    <button
-                      onClick={() => navigate(`/${slugify(user.name)}`)}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-colors shadow-xs cursor-pointer"
-                    >
-                      Request Proposal
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+        {isFreelancersPage && (
+          <FreelancerSearchView
+            usersList={usersList}
+            gigs={gigs}
+            navigate={navigate}
+            currentUser={currentUser}
+            setIsSignupModalOpen={setIsSignupModalOpen}
+            slugify={slugify}
+          />
         )}
+
 
         {/* VIEW 1: GIGS EXPLORE MARKETPLACE */}
         {isGigsList && (
@@ -5944,10 +3821,10 @@ export default function App() {
 
             {/* Categories Filter Tabs with Search-Engine-Friendly URLs */}
             <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-8 scrollbar-none">
-              {['All', 'Development & IT', 'AI & Data', 'Design & Creative', 'Mobile Apps'].map(catName => {
-                const slug = CATEGORY_SLUGS[catName];
+              {['All', ...PPH_CATEGORIES.map(c => c.name)].map(catName => {
+                const slug = CATEGORY_SLUGS[catName] || slugify(catName);
                 const catUrl = slug === 'all' ? '/' : `/categories/${slug}`;
-                const isActive = currentCategory === catName;
+                const isActive = currentCategory?.toLowerCase() === catName.toLowerCase();
                 return (
                   <a
                     key={catName}
@@ -6406,130 +4283,505 @@ export default function App() {
           </div>
         )}
 
-        {/* VIEW 3: BUYER REQUESTS / PROJECTS LIST */}
+        {/* VIEW 3: BUYER REQUESTS / PROJECT SEARCH (/projects) */}
         {isProjectsList && (
-          <div>
-            <div className="flex items-center justify-between mb-8">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight text-fiverr-dark">Buyer Project Requests</h1>
-                <p className="text-sm text-fiverr-muted">Browse open client projects and submit custom proposals.</p>
-              </div>
-              <a 
-                href="/post-project"
-                onClick={(e) => navigate('/post-project', e)}
-                className="px-4 py-2.5 text-xs font-semibold text-white bg-slate-900 rounded-xl hover:bg-slate-800 transition-colors flex items-center gap-2 shadow-sm"
-              >
-                <PlusCircle className="w-4 h-4 text-emerald-400" />
-                <span>Post New Project</span>
-              </a>
-            </div>
+          <ProjectSearchView
+            projects={projects}
+            navigate={navigate}
+            currentUser={currentUser}
+          />
+        )}
 
-            <div className="space-y-4">
-              {projects.map(proj => (
-                <div key={proj.id} className="bg-white rounded-2xl border border-slate-200 p-6 hover:shadow-md transition-shadow">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
-                    <div className="flex items-center gap-3">
-                      <img src={proj.buyerAvatar} alt={proj.buyerName} className="w-10 h-10 rounded-full object-cover" />
-                      <div>
-                        <span className="text-xs font-semibold text-fiverr-dark block">{proj.buyerName}</span>
-                        <span className="text-[11px] text-slate-400">Posted {proj.createdAt}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right">
-                        <span className="text-xs text-slate-400 block font-medium">Budget</span>
-                        <span className="text-sm font-bold text-fiverr-dark">${proj.budgetMin} - ${proj.budgetMax}</span>
-                      </div>
-                      <a 
-                        href={`/projects/${proj.id}`}
-                        onClick={(e) => navigate(`/projects/${proj.id}`, e)}
-                        className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-500 transition-colors shadow-xs"
-                      >
-                        Submit Proposal
-                      </a>
-                    </div>
-                  </div>
+        {/* VIEW 4: PROJECT PROPOSAL & DETAIL PAGE (Clean URL /projects/:id or /freelance-jobs/...) */}
+        {isProjectDetail && currentProject && (
+          <ProjectDetailView
+            project={currentProject}
+            currentUser={currentUser}
+            navigate={navigate}
+            onSubmitProposal={(projectId, bidAmount, deliveryDays, coverLetter) => {
+              handleSubmitProposalDirect(projectId, bidAmount, deliveryDays, coverLetter);
+            }}
+            allProjects={projects}
+          />
+        )}
 
-                  <h3 className="text-base font-bold text-fiverr-dark mb-2">{proj.title}</h3>
-                  <p className="text-sm text-fiverr-dark mb-4 line-clamp-2">{proj.description}</p>
-
-                  <div className="flex items-center gap-4 text-xs text-fiverr-muted pt-3 border-t border-slate-100">
-                    <span className="bg-slate-100 px-2.5 py-1 rounded-md font-medium text-fiverr-dark">{proj.category}</span>
-                    <span>·</span>
-                    <span>{proj.proposalsCount} proposals submitted</span>
-                  </div>
+        {/* VIEW: CUSTOMER SUPPORT CENTER (/support) */}
+        {isSupport && (
+          <div className="max-w-3xl mx-auto space-y-8 font-sans py-6">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 md:p-12 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 pb-6 border-b border-slate-100">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <HelpCircle className="w-6 h-6" />
                 </div>
-              ))}
+                <div>
+                  <h1 className="text-2xl font-bold text-fiverr-dark">WorkPerHour Support Center</h1>
+                  <p className="text-xs text-fiverr-muted">Submit an inquiry, appeal account restrictions, or request assistance from our support team.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateSupportTicket} className="space-y-5">
+                <div>
+                  <label className="block text-xs font-bold text-fiverr-dark uppercase tracking-wider mb-2">Inquiry Subject / Topic</label>
+                  <input 
+                    type="text" 
+                    placeholder="e.g. Account Verification / Escrow Payout Question" 
+                    value={supportSubject}
+                    onChange={(e) => setSupportSubject(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-fiverr-dark uppercase tracking-wider mb-2">Detailed Message / Explanation</label>
+                  <textarea 
+                    rows={6}
+                    placeholder="Please provide all relevant details so our support team can assist you promptly..."
+                    value={supportMessage}
+                    onChange={(e) => setSupportMessage(e.target.value)}
+                    required
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-slate-900 focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-4">
+                  <button 
+                    type="button" 
+                    onClick={(e) => navigate('/', e)}
+                    className="px-5 py-2.5 text-xs font-bold text-fiverr-dark bg-slate-100 rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
+                  >
+                    Back to Marketplace
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="px-6 py-3 text-xs font-bold text-slate-950 bg-emerald-400 hover:bg-emerald-300 rounded-xl shadow-xs transition-colors cursor-pointer"
+                  >
+                    Submit Support Ticket
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         )}
 
-        {/* VIEW 4: PROJECT PROPOSAL PAGE (Clean URL /projects/:id) */}
-        {isProjectDetail && currentProject && (
-          <div className="max-w-2xl mx-auto bg-white rounded-3xl border border-slate-200 p-8 shadow-xs">
-            <a href="/projects" onClick={(e) => navigate('/projects', e)} className="inline-flex items-center gap-2 text-xs font-semibold text-fiverr-dark hover:text-fiverr-dark mb-6">
-              <ArrowLeft className="w-4 h-4" /> Back to Buyer Requests
-            </a>
+        {/* VIEW: ACCOUNT & PROFILE SETTINGS WEBPAGE (/settings) */}
+        {isSettings && (
+          <SettingsPage 
+            currentUser={currentUser}
+            updateCurrentUser={updateCurrentUser}
+            navigate={navigate}
+          />
+        )}
 
-            <div className="mb-6">
-              <span className="text-xs font-semibold text-emerald-600 block mb-1">Project Proposal</span>
-              <h1 className="text-xl font-bold text-fiverr-dark mb-2">{currentProject.title}</h1>
-              <p className="text-sm text-fiverr-dark">{currentProject.description}</p>
+        {/* VIEW: LOGIN WEBPAGE (/login) */}
+        {isLoginRoute && (
+          <div className="max-w-md mx-auto space-y-6 font-sans py-8">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6">
+              <div className="text-center space-y-1">
+                <div className="w-12 h-12 rounded-2xl bg-slate-900 text-emerald-400 flex items-center justify-center font-bold text-xl mx-auto shadow-md mb-3">
+                  W
+                </div>
+                <h1 className="text-2xl font-bold text-fiverr-dark">Login to WorkPerHour</h1>
+                <p className="text-xs text-fiverr-muted">Enter your email credentials or test authentication below.</p>
+              </div>
+
+              {loginRequiresCode ? (
+                <form className="space-y-4">
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800 space-y-1">
+                    <div className="flex items-center gap-1.5 font-bold text-amber-900">
+                      <ShieldCheck className="w-4 h-4 text-amber-600" />
+                      <span>Device Verification Code Required</span>
+                    </div>
+                    <p>{loginVerificationMessage || `Enter the 6-digit verification code sent to ${loginEmail}.`}</p>
+                  </div>
+
+                  {mockEmailCodeDisplay && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between">
+                      <span>Test / Demo OTP:</span>
+                      <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-emerald-200">{mockEmailCodeDisplay}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-xs font-bold text-fiverr-dark uppercase block mb-1">Enter 6-Digit Email Code</label>
+                    <input 
+                      type="text" 
+                      maxLength={6} 
+                      placeholder="123456" 
+                      value={loginCode} 
+                      onChange={(e) => setLoginCode(e.target.value)} 
+                      required 
+                      autoFocus
+                      className="w-full px-4 py-3 border border-slate-200 rounded-xl text-center text-lg font-mono font-bold tracking-widest bg-white focus:outline-emerald-500" 
+                    />
+                  </div>
+
+                  <button type="button" onClick={() => handleLoginSubmit()} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition cursor-pointer text-xs">
+                    Verify Code & Complete Login
+                  </button>
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button 
+                      type="button" 
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/auth/resend-email-code', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ email: loginEmail })
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.mockEmailCode) {
+                            setMockEmailCodeDisplay(data.mockEmailCode);
+                            alert('New verification code sent to your email.');
+                          }
+                        } catch (e) {
+                          console.warn(e);
+                        }
+                      }} 
+                      className="text-emerald-700 font-semibold hover:underline cursor-pointer"
+                    >
+                      Resend Code
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => { setLoginRequiresCode(false); setLoginCode(''); }} 
+                      className="text-fiverr-muted hover:text-slate-800 cursor-pointer"
+                    >
+                      Back to Password
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); handleLoginSubmit(e); }}>
+                  <div>
+                    <label className="block text-xs font-bold text-fiverr-dark uppercase mb-1">Email Address</label>
+                    <input type="email" placeholder="e.g. elena@example.com" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-slate-900" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-fiverr-dark uppercase mb-1">Password</label>
+                    <input type="password" placeholder="Password (default: password123)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-slate-900" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition cursor-pointer text-xs">Sign In</button>
+                  <div className="flex items-center justify-between text-xs pt-2">
+                    <button type="button" onClick={(e) => navigate('/forgot-password', e)} className="text-emerald-700 font-semibold hover:underline cursor-pointer">Forgot Password?</button>
+                    <button type="button" onClick={(e) => navigate('/signup', e)} className="text-fiverr-muted hover:text-slate-900 cursor-pointer">Create an account</button>
+                  </div>
+                </form>
+              )}
+
+              <div className="pt-4 border-t border-slate-100">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2 text-center">Instant Demo Account Login</span>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {usersList.slice(0, 4).map(u => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/auth/demo-session', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: u.id })
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.token) {
+                            localStorage.setItem('workperhour_token', data.token);
+                            localStorage.setItem('token', data.token);
+                            updateCurrentUser(data.user);
+                            setImpersonatedUser(null);
+                            navigate('/orders');
+                          }
+                        } catch (e) {
+                          console.warn(e);
+                        }
+                      }}
+                      className="p-2 border border-slate-200 rounded-xl hover:border-emerald-500 hover:bg-emerald-50/50 text-left transition cursor-pointer"
+                    >
+                      <div className="font-bold text-fiverr-dark truncate">{u.name}</div>
+                      <div className="text-[10px] text-slate-400 capitalize">{u.role}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: SIGNUP WEBPAGE (/signup) */}
+        {isSignupRoute && (
+          <div className="max-w-md mx-auto space-y-6 font-sans py-8">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6">
+              <div className="text-center space-y-1">
+                <h1 className="text-2xl font-bold text-fiverr-dark">Create WorkPerHour Account</h1>
+                <p className="text-xs text-fiverr-muted">Join the secure escrow marketplace for freelancers and clients.</p>
+              </div>
+
+              <form onSubmit={handleSignupSubmit} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-fiverr-dark font-bold uppercase mb-1">Full Name</label>
+                  <input type="text" placeholder="John Doe" value={signupName} onChange={(e) => setSignupName(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-fiverr-dark font-bold uppercase mb-1">Email Address</label>
+                  <input type="email" placeholder="john@example.com" value={signupEmail} onChange={(e) => setSignupEmail(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-fiverr-dark font-bold uppercase mb-1">Mobile Phone Number</label>
+                  <input type="tel" placeholder="+1 (555) 000-0000" value={signupMobile} onChange={(e) => setSignupMobile(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-fiverr-dark font-bold uppercase mb-1">Password</label>
+                  <input type="password" placeholder="At least 6 characters" value={signupPassword} onChange={(e) => setSignupPassword(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900" />
+                </div>
+                <div>
+                  <label className="block text-fiverr-dark font-bold uppercase mb-1">Confirm Password</label>
+                  <input type="password" placeholder="Re-enter password" value={signupConfirmPassword} onChange={(e) => setSignupConfirmPassword(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl focus:ring-2 focus:ring-slate-900" />
+                </div>
+                <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition cursor-pointer">Register Account</button>
+                <div className="text-center pt-2">
+                  <button type="button" onClick={(e) => navigate('/login', e)} className="text-emerald-700 font-semibold hover:underline cursor-pointer">Already have an account? Login</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: FORGOT PASSWORD WEBPAGE (/forgot-password) */}
+        {isForgotPasswordRoute && (
+          <div className="max-w-md mx-auto space-y-6 font-sans py-8">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6">
+              <div className="text-center space-y-1">
+                <h1 className="text-2xl font-bold text-fiverr-dark">Account Recovery</h1>
+                <p className="text-xs text-fiverr-muted">Reset your account password securely.</p>
+              </div>
+
+              {forgotStep === 'request' && (
+                <form onSubmit={handleForgotRequest} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-fiverr-dark uppercase mb-1">Email or Mobile Number</label>
+                    <input type="text" placeholder="e.g. elena@example.com" value={forgotQuery} onChange={(e) => setForgotQuery(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition cursor-pointer">Send Recovery Code</button>
+                </form>
+              )}
+
+              {forgotStep === 'verify' && (
+                <form onSubmit={handleForgotVerify} className="space-y-4 text-xs">
+                  {mockForgotCodeDisplay && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 flex items-center justify-between">
+                      <span>Test / Demo OTP:</span>
+                      <span className="font-mono font-bold bg-white px-2 py-0.5 rounded border border-emerald-200">{mockForgotCodeDisplay}</span>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block font-bold text-fiverr-dark uppercase mb-1">6-Digit Recovery Code</label>
+                    <input type="text" placeholder="123456" maxLength={6} value={forgotCode} onChange={(e) => setForgotCode(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl text-center font-mono font-bold text-lg" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition cursor-pointer">Verify Code</button>
+                </form>
+              )}
+
+              {forgotStep === 'reset' && (
+                <form onSubmit={handleForgotReset} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-fiverr-dark uppercase mb-1">New Password</label>
+                    <input type="password" placeholder="At least 6 characters" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                  <div>
+                    <label className="block font-bold text-fiverr-dark uppercase mb-1">Confirm New Password</label>
+                    <input type="password" placeholder="Confirm new password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} required className="w-full px-4 py-2.5 border border-slate-200 rounded-xl" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl hover:bg-slate-800 transition cursor-pointer">Reset Password & Login</button>
+                </form>
+              )}
+
+              <div className="text-center pt-2">
+                <button type="button" onClick={(e) => navigate('/login', e)} className="text-xs text-fiverr-muted hover:text-slate-900 cursor-pointer">Back to Login</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: VERIFY CODE WEBPAGE (/verify) */}
+        {isVerifyRoute && (
+          <div className="max-w-md mx-auto space-y-6 font-sans py-8">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6">
+              <div className="text-center space-y-1">
+                <h1 className="text-2xl font-bold text-fiverr-dark">Verify Your Account</h1>
+                <p className="text-xs text-fiverr-muted">Enter your email or SMS 6-digit verification code below.</p>
+              </div>
+
+              <div className="flex border-b border-slate-200 text-xs font-bold">
+                <button onClick={() => setVerificationMode('email')} className={`flex-1 py-2 text-center cursor-pointer ${verificationMode === 'email' ? 'border-b-2 border-slate-900 text-slate-900' : 'text-slate-400'}`}>Email Verification</button>
+                <button onClick={() => setVerificationMode('sms')} className={`flex-1 py-2 text-center cursor-pointer ${verificationMode === 'sms' ? 'border-b-2 border-slate-900 text-slate-900' : 'text-slate-400'}`}>SMS Verification</button>
+              </div>
+
+              {verificationMode === 'email' ? (
+                <form onSubmit={handleVerifyEmailSubmit} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-fiverr-dark uppercase mb-1">Enter 6-Digit Email Code</label>
+                    <input type="text" maxLength={6} placeholder="123456" value={emailCodeInput} onChange={(e) => setEmailCodeInput(e.target.value)} required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-center font-mono font-bold text-lg" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition cursor-pointer">Verify Email Code</button>
+                </form>
+              ) : (
+                <form onSubmit={handleVerifySmsSubmit} className="space-y-4 text-xs">
+                  <div>
+                    <label className="block font-bold text-fiverr-dark uppercase mb-1">Enter 6-Digit SMS OTP</label>
+                    <input type="text" maxLength={6} placeholder="123456" value={smsCodeInput} onChange={(e) => setSmsCodeInput(e.target.value)} required className="w-full px-4 py-3 border border-slate-200 rounded-xl text-center font-mono font-bold text-lg" />
+                  </div>
+                  <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition cursor-pointer">Verify SMS Code</button>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: WISHLIST WEBPAGE (/wishlist) */}
+        {isWishlistRoute && (
+          <div className="max-w-6xl mx-auto space-y-8 font-sans py-6">
+            <div className="flex items-center justify-between pb-6 border-b border-slate-200">
+              <div>
+                <h1 className="text-2xl font-bold text-fiverr-dark flex items-center gap-2">
+                  <Heart className="w-6 h-6 text-red-500 fill-red-500" />
+                  <span>Your Saved Gigs ({likedGigIds.length})</span>
+                </h1>
+                <p className="text-xs text-fiverr-muted mt-1">Gigs and services you have saved to your personal wishlist.</p>
+              </div>
             </div>
 
-            <form onSubmit={(e) => handleSubmitProposal(e, currentProject.id)} className="space-y-5">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-fiverr-dark uppercase tracking-wider mb-2">Your Bid ($)</label>
-                  <input 
-                    type="number" 
-                    placeholder="e.g. 1200"
-                    value={proposalBid}
-                    onChange={(e) => setProposalBid(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-slate-900 focus:outline-none"
-                  />
+            {likedGigIds.length === 0 ? (
+              <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center space-y-4 shadow-sm">
+                <Heart className="w-12 h-12 text-slate-300 mx-auto" />
+                <h3 className="text-base font-bold text-fiverr-dark">No saved gigs yet</h3>
+                <p className="text-xs text-fiverr-muted max-w-sm mx-auto">Click the heart icon on any gig card to save services to your wishlist for quick access later.</p>
+                <button onClick={(e) => navigate('/gigs', e)} className="px-6 py-2.5 bg-slate-900 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer">
+                  Explore Gigs
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {gigs.filter(g => likedGigIds.includes(g.id)).map(gig => (
+                  <div key={gig.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs hover:shadow-xl transition-all flex flex-col justify-between">
+                    <img src={gig.image} alt={gig.title} className="w-full h-48 object-cover" />
+                    <div className="p-5 space-y-3 flex-1 flex flex-col justify-between">
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider bg-emerald-50 px-2 py-0.5 rounded">{gig.category}</span>
+                        <h4 className="font-bold text-sm text-fiverr-dark line-clamp-2">{gig.title}</h4>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-slate-100 text-xs">
+                        <span className="font-bold text-fiverr-dark">${gig.price}</span>
+                        <button onClick={(e) => navigate(getGigUrl(gig), e)} className="px-3 py-1.5 bg-slate-900 text-white font-bold text-xs rounded-lg cursor-pointer">View Gig</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* VIEW: NOTIFICATIONS WEBPAGE (/notifications) */}
+        {isNotificationsRoute && (
+          <div className="max-w-4xl mx-auto space-y-8 font-sans py-6">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 pb-6 border-b border-slate-100">
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <Bell className="w-6 h-6" />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-fiverr-dark uppercase tracking-wider mb-2">Delivery (Days)</label>
-                  <input 
-                    type="number" 
-                    placeholder="e.g. 14"
-                    value={proposalDays}
-                    onChange={(e) => setProposalDays(e.target.value)}
-                    required
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-slate-900 focus:outline-none"
-                  />
+                  <h1 className="text-2xl font-bold text-fiverr-dark">Notifications & Email Inbox</h1>
+                  <p className="text-xs text-fiverr-muted">System alerts, automated email dispatches, and workstream updates.</p>
                 </div>
               </div>
 
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-bold text-fiverr-dark uppercase tracking-wider">Cover Letter</label>
-                  <button 
-                    type="button"
-                    onClick={() => handleGenerateAIProposal(currentProject.title, currentProject.description)}
-                    disabled={isGeneratingAIProposal}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 transition-colors border border-emerald-200"
-                  >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    <span>Generate Cover Letter</span>
-                  </button>
+              <div className="space-y-4">
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs space-y-1">
+                  <span className="font-bold text-fiverr-dark block">System Notification Preferences</span>
+                  <p className="text-fiverr-muted">Email alerts for escrow deposits, workstream submissions, and milestone approvals are enabled for your account.</p>
                 </div>
-                <textarea 
-                  rows={6}
-                  placeholder="Explain why you are the best fit for this project..."
-                  value={proposalCover}
-                  onChange={(e) => setProposalCover(e.target.value)}
-                  required
-                  className="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-slate-900 focus:outline-none"
-                />
+
+                <div className="divide-y divide-slate-100 border border-slate-200 rounded-2xl overflow-hidden">
+                  <div className="p-4 bg-white flex items-start gap-4">
+                    <Mail className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-fiverr-dark">Escrow Deposit Confirmed</span>
+                        <span className="text-[10px] text-slate-400 font-mono">Today</span>
+                      </div>
+                      <p className="text-fiverr-muted">Milestone funds have been securely locked in the WorkPerHour Escrow Vault.</p>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-white flex items-start gap-4">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0 text-xs space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-fiverr-dark">Workstream Active</span>
+                        <span className="text-[10px] text-slate-400 font-mono">Yesterday</span>
+                      </div>
+                      <p className="text-fiverr-muted">Your real-time collaboration session is active with your project partner.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* VIEW: SWITCH USER WEBPAGE (/switch-user) */}
+        {isSwitchUserRoute && (
+          <div className="max-w-4xl mx-auto space-y-8 font-sans py-6">
+            <div className="bg-white border border-slate-200 rounded-3xl p-8 shadow-sm space-y-6">
+              <div className="flex items-center gap-3 pb-6 border-b border-slate-100">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Users className="w-6 h-6" />
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold text-fiverr-dark">Switch Demo Account</h1>
+                  <p className="text-xs text-fiverr-muted">Instantly switch session role to test client, freelancer, or administrator perspectives.</p>
+                </div>
               </div>
 
-              <button type="submit" className="w-full py-3.5 bg-slate-900 text-white font-semibold rounded-xl hover:bg-slate-800 transition-colors text-sm shadow-md">
-                Submit Proposal to Buyer
-              </button>
-            </form>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                {usersList.map(u => (
+                  <div key={u.id} className="p-5 border border-slate-200 rounded-2xl hover:border-emerald-500 hover:shadow-md transition-all flex items-center justify-between gap-4 bg-white">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <img src={u.avatar} alt={u.name} className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="font-bold text-fiverr-dark text-sm block truncate">{u.name}</span>
+                        <span className="text-[10px] text-slate-400 uppercase font-mono">{u.role} · ${u.hourlyRate}/hr</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/auth/demo-session', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ userId: u.id })
+                          });
+                          const data = await res.json();
+                          if (res.ok && data.token) {
+                            localStorage.setItem('workperhour_token', data.token);
+                            localStorage.setItem('token', data.token);
+                            updateCurrentUser(data.user);
+                            setImpersonatedUser(null);
+                            alert(`Switched account to ${u.name} (${u.role})`);
+                            navigate('/orders');
+                          }
+                        } catch (e) {
+                          console.warn(e);
+                        }
+                      }}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-xs cursor-pointer shrink-0"
+                    >
+                      Switch to Account
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
@@ -6946,18 +5198,8 @@ export default function App() {
         }} 
         onOpenSupport={() => {
           setIsEmailModalOpen(false);
-          setIsSupportModalOpen(true);
+          navigate('/support');
         }} 
-      />
-
-      <SupportModal 
-        isOpen={isSupportModalOpen} 
-        onClose={() => setIsSupportModalOpen(false)} 
-        supportSubject={supportSubject} 
-        setSupportSubject={setSupportSubject} 
-        supportMessage={supportMessage} 
-        setSupportMessage={setSupportMessage} 
-        onSubmitTicket={handleCreateSupportTicket} 
       />
 
       <UserSwitchModal 
@@ -6974,7 +5216,7 @@ export default function App() {
       />
 
       {/* PROFILE PAGE VIEW (Matches PeoplePerHour design from screenshot exactly) */}
-      {isProfilePage && profileUser && (
+      {isProfilePage && profileUser && !isEditProfile && (
         <FreelancerProfileView 
           profileUser={profileUser}
           currentUser={currentUser}
@@ -6983,6 +5225,16 @@ export default function App() {
           onNavigate={navigate}
           onFeatureGig={handleFeatureUserGig}
           onContact={() => handleContactSeller(profileUser.id, profileUser.name, 'General Inquiry')}
+          onEditProfile={() => navigate('/edit-profile')}
+        />
+      )}
+
+      {/* EDIT PROFILE WEBPAGE (/edit-profile or /freelancer/edit) */}
+      {isEditProfile && (
+        <EditProfilePage 
+          currentUser={currentUser}
+          updateCurrentUser={updateCurrentUser}
+          navigate={navigate}
         />
       )}
       {isPayments && (
@@ -7092,7 +5344,7 @@ export default function App() {
             <ul className="space-y-2.5 text-xs text-fiverr-dark">
               <li>
                 <button 
-                  onClick={() => setIsSupportModalOpen(true)}
+                  onClick={(e) => navigate('/support', e)}
                   className="inline-flex items-center gap-1.5 font-bold text-fiverr-dark hover:text-emerald-600 transition-colors cursor-pointer"
                 >
                   <HelpCircle className="w-3.5 h-3.5 text-emerald-600" />
@@ -7115,7 +5367,7 @@ export default function App() {
           <p>© 2026 WorkPerHour Marketplace Inc. All rights reserved.</p>
           <div className="flex items-center gap-6">
             <button 
-              onClick={() => setIsSupportModalOpen(true)}
+              onClick={(e) => navigate('/support', e)}
               className="font-semibold text-emerald-600 hover:text-emerald-700 inline-flex items-center gap-1 cursor-pointer"
             >
               <HelpCircle className="w-3.5 h-3.5" />
@@ -7123,7 +5375,7 @@ export default function App() {
             </button>
             <span>·</span>
             <button 
-              onClick={() => setIsUserSwitchModalOpen(true)}
+              onClick={(e) => navigate('/switch-user', e)}
               className="font-semibold text-fiverr-dark hover:text-fiverr-dark inline-flex items-center gap-1 cursor-pointer"
             >
               <Users className="w-3.5 h-3.5 text-emerald-600" />
@@ -7140,195 +5392,58 @@ export default function App() {
           </div>
         </div>
       </footer>
-      {/* LOGIN MODAL */}
-      {isLoginModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-fiverr-dark">Login to WorkPerHour</h2>
-              <button 
-                onClick={() => setIsLoginModalOpen(false)} 
-                className="text-slate-400 hover:text-fiverr-dark p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-            {loginRequiresCode ? (
-              <form className="space-y-4">
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800 space-y-1">
-                  <div className="flex items-center gap-1.5 font-bold text-amber-900">
-                    <ShieldCheck className="w-4 h-4 text-amber-600" />
-                    <span>Device Verification Code Required</span>
-                  </div>
-                  <p>{loginVerificationMessage || `Enter the 6-digit verification code sent to ${loginEmail}.`}</p>
-                </div>
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+        loginRequiresCode={loginRequiresCode}
+        loginVerificationMessage={loginVerificationMessage}
+        mockEmailCodeDisplay={mockEmailCodeDisplay}
+        loginEmail={loginEmail}
+        setLoginEmail={setLoginEmail}
+        loginPassword={loginPassword}
+        setLoginPassword={setLoginPassword}
+        loginCode={loginCode}
+        setLoginCode={setLoginCode}
+        handleLoginSubmit={handleLoginSubmit}
+        setLoginRequiresCode={setLoginRequiresCode}
+        usersList={usersList}
+        updateCurrentUser={updateCurrentUser}
+        setImpersonatedUser={setImpersonatedUser}
+        fetchAllAdminData={fetchAllAdminData}
+        setIsForgotPasswordModalOpen={setIsForgotPasswordModalOpen}
+        setMockEmailCodeDisplay={setMockEmailCodeDisplay}
+      />
 
-                {mockEmailCodeDisplay && (
-                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between">
-                    <span>Test / Demo OTP:</span>
-                    <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-emerald-200">{mockEmailCodeDisplay}</span>
-                  </div>
-                )}
+      <SignupModal
+        isOpen={isSignupModalOpen}
+        onClose={() => setIsSignupModalOpen(false)}
+        handleSignupSubmit={handleSignupSubmit}
+        signupName={signupName}
+        setSignupName={setSignupName}
+        signupEmail={signupEmail}
+        setSignupEmail={setSignupEmail}
+        signupMobile={signupMobile}
+        setSignupMobile={setSignupMobile}
+        signupPassword={signupPassword}
+        setSignupPassword={setSignupPassword}
+        signupConfirmPassword={signupConfirmPassword}
+        setSignupConfirmPassword={setSignupConfirmPassword}
+      />
 
-                <div>
-                  <label className="text-xs font-bold text-fiverr-dark uppercase block mb-1">Enter 6-Digit Email Code</label>
-                  <input 
-                    type="text" 
-                    maxLength={6} 
-                    placeholder="123456" 
-                    value={loginCode} 
-                    onChange={(e) => setLoginCode(e.target.value)} 
-                    required 
-                    autoFocus
-                    className="w-full px-4 py-3 border border-slate-200 rounded-xl text-center text-lg font-mono font-bold tracking-widest bg-white focus:outline-emerald-500" 
-                  />
-                </div>
-
-                <button type="button" onClick={handleLoginSubmit} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition cursor-pointer text-sm">
-                  Verify Code & Complete Login
-                </button>
-
-                <div className="flex items-center justify-between text-xs pt-1">
-                  <button 
-                    type="button" 
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/auth/resend-email-code', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ email: loginEmail })
-                        });
-                        const data = await res.json();
-                        if (res.ok && data.mockEmailCode) {
-                          setMockEmailCodeDisplay(data.mockEmailCode);
-                          alert('New verification code sent to your email.');
-                        }
-                      } catch (e) {
-                        console.warn(e);
-                      }
-                    }} 
-                    className="text-emerald-700 font-semibold hover:underline cursor-pointer"
-                  >
-                    Resend Code
-                  </button>
-                  <button 
-                    type="button" 
-                    onClick={() => { setLoginRequiresCode(false); setLoginCode(''); }} 
-                    className="text-fiverr-muted hover:text-slate-800 cursor-pointer"
-                  >
-                    Back to Password
-                  </button>
-                </div>
-              </form>
-            ) : (
-              <form className="space-y-3" onSubmit={handleLoginSubmit}>
-                <input type="email" placeholder="Email (e.g. elena@example.com)" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-                <input type="password" placeholder="Password (default: password123)" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-                <button type="submit" className="w-full py-2.5 bg-slate-900 text-white font-semibold rounded-xl hover:bg-slate-800 transition cursor-pointer">Login</button>
-                <button type="button" onClick={(e) => { e.preventDefault(); setIsLoginModalOpen(false); setIsForgotPasswordModalOpen(true); }} className="w-full text-xs font-normal text-emerald-700 hover:text-emerald-900 cursor-pointer underline">Forgot Password?</button>
-              </form>
-            )}
-
-            <div className="mt-5 pt-4 border-t border-slate-100">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-2 text-center">Instant Demo Account Login</span>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                {usersList.slice(0, 4).map(u => (
-                  <button
-                    key={u.id}
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        const res = await fetch('/api/auth/demo-session', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ userId: u.id })
-                        });
-                        const data = await res.json();
-                        if (data.token) {
-                          localStorage.setItem('workperhour_token', data.token);
-                          localStorage.setItem('token', data.token);
-                        }
-                        updateCurrentUser(data.user || u);
-                      } catch {
-                        updateCurrentUser(u);
-                      }
-                      setImpersonatedUser(null);
-                      setIsLoginModalOpen(false);
-                      fetchAllAdminData();
-                    }}
-                    className="p-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-left transition flex items-center gap-2 cursor-pointer"
-                  >
-                    <img src={u.avatar} className="w-6 h-6 rounded-full object-cover shrink-0" />
-                    <div className="truncate">
-                      <div className="font-bold text-[11px] text-slate-800 truncate">{u.name.split(' ')[0]}</div>
-                      <div className="text-[9px] text-fiverr-muted uppercase">{u.role}</div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* SIGNUP MODAL */}
-      {isSignupModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-fiverr-dark">Register for WorkPerHour</h2>
-              <button 
-                onClick={() => setIsSignupModalOpen(false)} 
-                className="text-slate-400 hover:text-fiverr-dark p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-            <form onSubmit={handleSignupSubmit} className="space-y-3">
-              <input type="text" placeholder="Full Name" value={signupName} onChange={(e) => setSignupName(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-              <input type="email" placeholder="Email" value={signupEmail} onChange={(e) => setSignupEmail(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-              <input type="text" placeholder="Mobile Number" value={signupMobile} onChange={(e) => setSignupMobile(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-              <input type="password" placeholder="Password (min 6 chars)" value={signupPassword} onChange={(e) => setSignupPassword(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-              <input type="password" placeholder="Confirm Password" value={signupConfirmPassword} onChange={(e) => setSignupConfirmPassword(e.target.value)} required className="w-full px-4 py-2 border rounded-xl text-sm" />
-              <button type="submit" className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-xl transition cursor-pointer">Sign Up</button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* VERIFY MODAL */}
-      {isVerifyModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-xl font-bold text-fiverr-dark">Verify Your Account</h2>
-              <button 
-                onClick={() => setIsVerifyModalOpen(false)} 
-                className="text-slate-400 hover:text-fiverr-dark p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-            <div className="mb-4">
-              <button onClick={() => setVerificationMode('email')} className={`mr-2 px-3 py-1 rounded ${verificationMode === 'email' ? 'bg-slate-900 text-white' : 'bg-slate-200'}`}>Email</button>
-              <button onClick={() => setVerificationMode('sms')} className={`px-3 py-1 rounded ${verificationMode === 'sms' ? 'bg-slate-900 text-white' : 'bg-slate-200'}`}>SMS</button>
-            </div>
-            {verificationMode === 'email' ? (
-              <form onSubmit={handleVerifyEmailSubmit} className="space-y-4">
-                <input type="text" placeholder="Enter Email Code" value={emailCodeInput} onChange={(e) => setEmailCodeInput(e.target.value)} required className="w-full px-4 py-2 border rounded-xl" />
-                <button type="submit" className="w-full py-2 bg-emerald-500 text-white rounded-xl">Verify Email</button>
-                <button type="button" onClick={handleResendEmailCode} className="w-full text-xs">Resend Email Code</button>
-              </form>
-            ) : (
-              <form onSubmit={handleVerifySmsSubmit} className="space-y-4">
-                <input type="text" placeholder="Enter SMS Code" value={smsCodeInput} onChange={(e) => setSmsCodeInput(e.target.value)} required className="w-full px-4 py-2 border rounded-xl" />
-                <button type="submit" className="w-full py-2 bg-emerald-500 text-white rounded-xl">Verify SMS</button>
-                <button type="button" onClick={handleResendSmsCode} className="w-full text-xs">Resend SMS Code</button>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+      <VerifyModal
+        isOpen={isVerifyModalOpen}
+        onClose={() => setIsVerifyModalOpen(false)}
+        verificationMode={verificationMode}
+        setVerificationMode={setVerificationMode}
+        emailCodeInput={emailCodeInput}
+        setEmailCodeInput={setEmailCodeInput}
+        smsCodeInput={smsCodeInput}
+        setSmsCodeInput={setSmsCodeInput}
+        handleVerifyEmailSubmit={handleVerifyEmailSubmit}
+        handleVerifySmsSubmit={handleVerifySmsSubmit}
+        handleResendEmailCode={handleResendEmailCode}
+        handleResendSmsCode={handleResendSmsCode}
+      />
 
       {/* GLOBAL INSPECT GIG DETAILS MODAL */}
       <ViewingGigModal
@@ -7377,106 +5492,33 @@ export default function App() {
         </div>
       )}
 
-      {/* FORGOT PASSWORD MODAL */}
-      {isForgotPasswordModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 relative">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-xl font-bold text-fiverr-dark">Forgot Password</h2>
-                <p className="text-xs text-fiverr-muted">Reset password via Email or SMS</p>
-              </div>
-              <button 
-                onClick={() => {
-                  setIsForgotPasswordModalOpen(false);
-                  setForgotStep('request');
-                  setForgotCode('');
-                  setNewPassword('');
-                  setConfirmNewPassword('');
-                }} 
-                className="text-slate-400 hover:text-fiverr-dark p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer text-xs font-bold"
-              >
-                ✕ Close
-              </button>
-            </div>
-            {forgotStep === 'request' && (
-              <form onSubmit={handleForgotRequest} className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-fiverr-dark block mb-1">Registered Email or Mobile Number</label>
-                  <input 
-                    type="text" 
-                    placeholder="elena@example.com or +1234567890" 
-                    value={forgotQuery} 
-                    onChange={(e) => setForgotQuery(e.target.value)} 
-                    required 
-                    className="w-full px-4 py-2.5 border rounded-xl text-sm" 
-                  />
-                </div>
-                <button type="submit" className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition cursor-pointer">
-                  Send Recovery Code
-                </button>
-              </form>
-            )}
-            {forgotStep === 'verify' && (
-              <form onSubmit={handleForgotVerify} className="space-y-4">
-                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1">
-                  <p className="font-semibold">Enter the 6-digit recovery OTP code sent to {forgotQuery}.</p>
-                  {mockForgotCodeDisplay && (
-                    <div className="p-1.5 bg-white border border-amber-200 rounded text-fiverr-dark font-mono font-bold flex items-center justify-between mt-1">
-                      <span className="text-[10px] text-fiverr-muted uppercase">Test OTP:</span>
-                      <span className="text-xs text-emerald-700">{mockForgotCodeDisplay}</span>
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-fiverr-dark block mb-1">6-Digit Recovery OTP</label>
-                  <input 
-                    type="text" 
-                    maxLength={6} 
-                    placeholder="123456" 
-                    value={forgotCode} 
-                    onChange={(e) => setForgotCode(e.target.value)} 
-                    required 
-                    className="w-full px-4 py-3 border rounded-xl text-center text-lg font-mono font-bold tracking-widest text-fiverr-dark" 
-                  />
-                </div>
-                <button type="submit" className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-sm transition cursor-pointer">
-                  Verify Recovery Code
-                </button>
-              </form>
-            )}
-            {forgotStep === 'reset' && (
-              <form onSubmit={handleForgotReset} className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-fiverr-dark block mb-1">New Password (min 6 characters)</label>
-                  <input 
-                    type="password" 
-                    placeholder="Enter new password" 
-                    value={newPassword} 
-                    onChange={(e) => setNewPassword(e.target.value)} 
-                    required 
-                    className="w-full px-4 py-2.5 border rounded-xl text-sm" 
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-fiverr-dark block mb-1">Confirm New Password</label>
-                  <input 
-                    type="password" 
-                    placeholder="Confirm new password" 
-                    value={confirmNewPassword} 
-                    onChange={(e) => setConfirmNewPassword(e.target.value)} 
-                    required 
-                    className="w-full px-4 py-2.5 border rounded-xl text-sm" 
-                  />
-                </div>
-                <button type="submit" className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition cursor-pointer">
-                  Save New Password & Proceed to Login
-                </button>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordModalOpen}
+        onClose={() => setIsForgotPasswordModalOpen(false)}
+        forgotStep={forgotStep}
+        setForgotStep={setForgotStep}
+        forgotQuery={forgotQuery}
+        setForgotQuery={setForgotQuery}
+        forgotCode={forgotCode}
+        setForgotCode={setForgotCode}
+        mockForgotCodeDisplay={mockForgotCodeDisplay}
+        newPassword={newPassword}
+        setNewPassword={setNewPassword}
+        confirmNewPassword={confirmNewPassword}
+        setConfirmNewPassword={setConfirmNewPassword}
+        handleForgotRequest={handleForgotRequest}
+        handleForgotVerify={handleForgotVerify}
+        handleForgotReset={handleForgotReset}
+        setForgotCodeEmpty={() => setForgotCode('')}
+      />
+
+      <EditUserProfileModal
+        editingUser={editingUser}
+        onClose={() => setEditingUser(null)}
+        editUserForm={editUserForm}
+        setEditUserForm={setEditUserForm}
+        handleSaveEditUser={handleSaveEditUser}
+      />
     </div>
   );
 }

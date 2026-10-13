@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { 
   ShieldCheck, CheckCircle2, Star, MapPin, Clock, MessageSquare, 
   Briefcase, Check, ExternalLink, ChevronRight, Award, User, 
-  Sparkles, Globe, Filter, Eye, Tag
+  Sparkles, Globe, Filter, Eye, Tag, Pencil, Settings
 } from 'lucide-react';
 import { UserAccount, Gig, Review } from '../types';
 import { UserReviewsModule } from './reviews';
@@ -15,6 +15,7 @@ interface FreelancerProfileViewProps {
   onNavigate: (to: string, e?: React.MouseEvent) => void;
   onFeatureGig?: (gigId: string) => void;
   onContact?: () => void;
+  onEditProfile?: () => void;
 }
 
 export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
@@ -24,7 +25,8 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
   reviews = [],
   onNavigate,
   onFeatureGig,
-  onContact
+  onContact,
+  onEditProfile
 }) => {
   // Main Tab State: 'offers' | 'portfolio'
   const [mainTab, setMainTab] = useState<'offers' | 'portfolio'>('offers');
@@ -105,6 +107,15 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
             <span className="text-emerald-400 font-semibold">{profileUser.name}</span>
           </div>
           <div className="flex items-center gap-3">
+            {onEditProfile && (
+              <button
+                onClick={onEditProfile}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg text-xs transition flex items-center gap-1.5 shadow-sm cursor-pointer border border-emerald-500"
+              >
+                <Pencil size={13} />
+                <span>Edit Profile</span>
+              </button>
+            )}
             <span className="text-[11px] text-slate-400">Search Engine Friendly URL Profile</span>
           </div>
         </div>
@@ -122,6 +133,18 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
             {/* Main Profile Info Card */}
             <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs space-y-4 text-xs text-slate-700 relative">
               
+              {/* Top Right Edit Button on Profile Card */}
+              {onEditProfile && (
+                <button
+                  onClick={onEditProfile}
+                  className="absolute top-4 right-4 px-2.5 py-1 bg-slate-50 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 border border-slate-200 hover:border-emerald-500 font-bold text-[11px] rounded-lg shadow-2xs transition flex items-center gap-1 cursor-pointer"
+                  title="Edit Profile Details"
+                >
+                  <Pencil size={12} className="text-emerald-600" />
+                  <span>Edit</span>
+                </button>
+              )}
+
               {/* Avatar & CERT Status Badge */}
               <div className="text-center relative pt-1">
                 <div className="relative inline-block">
@@ -135,7 +158,19 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
                   </span>
                 </div>
 
-                <h1 className="text-xl font-bold text-fiverr-dark mt-2.5">{profileUser.name}</h1>
+                <div className="flex items-center justify-center gap-2 mt-2.5">
+                  <h1 className="text-xl font-bold text-fiverr-dark">{profileUser.name}</h1>
+                  {onEditProfile && (
+                    <button
+                      onClick={onEditProfile}
+                      className="px-2.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 font-bold text-[11px] rounded-md transition flex items-center gap-1 cursor-pointer"
+                      title="Edit Profile"
+                    >
+                      <Pencil size={11} className="text-emerald-600" />
+                      <span>Edit profile</span>
+                    </button>
+                  )}
+                </div>
                 <p className="text-[11px] text-slate-600 font-medium leading-tight mt-1 px-2">
                   {profileUser.title || 'SEO Expert and Experienced Guest Post Writer on Authority Sites.'}
                 </p>

@@ -67,6 +67,28 @@ export interface Project {
   featured: boolean;
   moderationStatus?: 'approved' | 'flagged' | 'rejected' | 'pending';
   moderationNotes?: string;
+  projectType?: 'fixed' | 'hourly';
+  skills?: string[];
+  experienceLevel?: 'entry' | 'intermediate' | 'expert';
+  location?: string;
+  countryFlag?: string;
+  isUrgent?: boolean;
+  verifiedBuyer?: boolean;
+  buyerSpent?: string;
+  buyerRating?: number;
+  buyerReviewsCount?: number;
+  buyerMemberSince?: string;
+  buyerProjectsPosted?: number;
+  attachments?: Array<{ name: string; size: string; url?: string }>;
+  clarificationQuestions?: Array<{
+    id: string;
+    authorName: string;
+    authorAvatar: string;
+    question: string;
+    createdAt: string;
+    answer?: string;
+    answeredAt?: string;
+  }>;
 }
 
 export interface Proposal {
@@ -137,7 +159,16 @@ export interface UserAccount {
   walletBalance: number;
   createdAt: string;
   isAvailableNow?: boolean;
+  location?: string;
+  countryFlag?: string;
+  responseTime?: string;
+  category?: string;
+  subcategory?: string;
+  languages?: string[];
+  certifications?: string[];
 }
+
+export type User = UserAccount;
 
 export interface Dispute {
   id: string;

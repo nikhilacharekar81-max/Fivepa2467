@@ -1601,23 +1601,7 @@ export const PaymentsModule: React.FC<PaymentsModuleProps> = ({
               </div>
             </div>
 
-            {/* Service Fees Card */}
-            <div className="border-t border-slate-100 pt-4 space-y-2">
-              <h3 className="font-bold text-slate-800 text-sm">Service Fees*</h3>
-              <div className="text-xs space-y-1.5 text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100">
-                <div className="flex justify-between">
-                  <span>First $7,000 earned with Buyer</span>
-                  <span className="font-bold text-slate-900">7.5%</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Over $7,000 earned with Buyer</span>
-                  <span className="font-bold text-emerald-600">3.5%</span>
-                </div>
-                <p className="text-[10px] text-slate-400 pt-1">
-                  *Work billed under Zero Commission scheme is excluded from fees.
-                </p>
-              </div>
-            </div>
+
 
             {/* Quick Action Navigation Buttons */}
             <div className="border-t border-slate-100 pt-4 space-y-2 text-sm">
