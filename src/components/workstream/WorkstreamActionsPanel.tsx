@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   ShieldCheck, ArrowRight, FileText, Paperclip, AlertTriangle, 
-  RotateCcw, CheckCircle2, PlusCircle, Settings, Send 
+  RotateCcw, CheckCircle2, PlusCircle, Settings, Send, Video, Star
 } from 'lucide-react';
 import { WorkstreamItem } from './types';
 import { UserAccount } from '../../types';
@@ -13,6 +13,7 @@ interface WorkstreamActionsPanelProps {
   onOpenDeliverModal: () => void;
   onOpenRevisionModal: () => void;
   onOpenInvoiceModal?: () => void;
+  onStartVideoCall?: () => void;
   onAttachFiles: () => void;
   onDisputeAssistance?: () => void;
 }
@@ -24,6 +25,7 @@ export const WorkstreamActionsPanel: React.FC<WorkstreamActionsPanelProps> = ({
   onOpenDeliverModal,
   onOpenRevisionModal,
   onOpenInvoiceModal,
+  onStartVideoCall,
   onAttachFiles,
   onDisputeAssistance
 }) => {
@@ -40,34 +42,59 @@ export const WorkstreamActionsPanel: React.FC<WorkstreamActionsPanelProps> = ({
       </h4>
 
       <div className="space-y-2.5">
+        {/* IN-BROWSER MEETING BUTTON (WEB-RTC VIDEO CALL) */}
+        {onStartVideoCall && (
+          <button
+            onClick={onStartVideoCall}
+            className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-bold text-left flex items-center justify-between transition shadow-xs cursor-pointer border border-indigo-500/80"
+          >
+            <div className="flex items-center gap-2.5">
+              <Video className="w-4 h-4 text-emerald-400 animate-pulse" />
+              <span>Start In-Browser Meeting</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         {/* BUYER ACTIONS */}
         {isBuyer && !isCompleted && (
-          <>
-            <button
-              onClick={onOpenReleaseModal}
-              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold text-left flex items-center justify-between transition shadow-xs cursor-pointer"
-            >
-              <div className="flex items-center gap-2.5">
-                <ShieldCheck className="w-4 h-4" />
-                <span>Release Escrow to Seller</span>
-              </div>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-
-            {isDelivered && (
-              <button
-                onClick={onOpenRevisionModal}
-                className="w-full py-2.5 px-4 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-2xl text-xs font-bold text-left flex items-center justify-between transition cursor-pointer"
-              >
-                <div className="flex items-center gap-2.5">
-                  <RotateCcw className="w-4 h-4" />
-                  <span>Request Revisions</span>
-                </div>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </>
+          <button
+            onClick={onOpenReleaseModal}
+            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold text-left flex items-center justify-between transition shadow-xs cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4" />
+              <span>Release Escrow to Seller</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         )}
+        {isBuyer && isCompleted && (
+          <button
+            onClick={onOpenReleaseModal}
+            className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold text-left flex items-center justify-between transition shadow-xs cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Star className="w-4 h-4" />
+              <span>Write a Review</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {isBuyer && isDelivered && (
+          <button
+            onClick={onOpenRevisionModal}
+            className="w-full py-2.5 px-4 bg-purple-50 hover:bg-purple-100 text-purple-800 border border-purple-200 rounded-2xl text-xs font-bold text-left flex items-center justify-between transition cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <RotateCcw className="w-4 h-4" />
+              <span>Request Revisions</span>
+            </div>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        )}
+
 
         {/* SELLER ACTIONS */}
         {isSeller && !isCompleted && (

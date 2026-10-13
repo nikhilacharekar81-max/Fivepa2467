@@ -1,24 +1,21 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
-  Briefcase, Search, Star, ShieldCheck, Clock, DollarSign, Send, 
-  MessageSquare, User, PlusCircle, CheckCircle2, AlertCircle, 
-  Sparkles, Award, ArrowRight, ChevronRight, ChevronDown, ChevronLeft, Filter, Globe, Lock, Check, RefreshCw, ArrowLeft, X, Paperclip,
-  Settings, Users, Layers, TrendingUp, AlertTriangle, Eye, Trash2, CheckCircle, BarChart3,
-  LayoutDashboard, ShieldAlert, Sliders, LogOut, FileText, Activity, Wallet, Scale, CornerDownLeft, ShoppingBag, CreditCard,
-  HelpCircle, Flag, MessageCircle, FileCode, KeyRound, Shield, ExternalLink,
-  Heart, Mail, Bell, Grid, List, Pencil
+  Activity, Bell, Briefcase, CheckCircle2, ChevronDown, ChevronRight,
+  Clock, FileText, Filter, Flame, Grid, Heart, HelpCircle, LayoutDashboard,
+  List, Lock, LogOut, Mail, MessageSquare, Pencil, PlusCircle,
+  RefreshCw, Search, Send, Settings, Shield, ShieldAlert, ShieldCheck,
+  Sparkles, Star, Trash2, User, Users, Wallet
 } from 'lucide-react';
-import { useLocation, useNavigate, Routes, Route } from 'react-router-dom';
-import { UserWalletsLedgerModule } from './components/UserWalletsLedgerModule';
-import { AdminOrdersManager } from './components/AdminOrdersManager';
-import { SiteFeeSettingsModule } from './components/SiteFeeSettingsModule';
+import { useNavigate } from 'react-router-dom';
 import { PaymentsModule } from './components/PaymentsModule';
 import { FreelancerProfileView } from './components/FreelancerProfileView';
 import { InspectUserModal, EditUserProfileModal, EditProfilePage } from './components/profile';
 import { SettingsPage } from './components/SettingsPage';
 import { HeaderCategoriesNav, PPH_CATEGORIES } from './components/HeaderCategoriesNav';
-import { ViewingGigModal, EditGigModal, DeleteGigModal, CreateGigView } from './components/gigs';
+import { ViewingGigModal, EditGigModal, DeleteGigModal, CreateGigView, RelatedGigsSection, GigDetailView } from './components/gigs';
 import { FreelancerSearchView, ProjectSearchView, ProjectDetailView } from './components/marketplace';
+import { AdminPage } from './pages/AdminPage';
+import { Reviews } from './components/gig_reviews';
 import * as DatabaseService from './services/DatabaseService';
 import { initialUsers, initialGigs, initialProjects, initialOrders } from './data/mockData';
 import {
@@ -40,30 +37,6 @@ import {
   VerifyModal,
   ForgotPasswordModal
 } from './components/modals';
-
-import {
-  AdminOverviewModule,
-  AdminUsersModule,
-  AdminProjectsModule,
-  AdminGigsModule,
-  AdminOrdersModule,
-  AdminCategoriesModule,
-  AdminProposalsModule,
-  AdminContractsModule,
-  AdminPaymentsModule,
-  AdminWalletModule,
-  AdminEscrowModule,
-  AdminDisputesModule,
-  AdminRefundsModule,
-  AdminPayoutsModule,
-  AdminReviewsModule,
-  AdminMessagesModule,
-  AdminReportsModule,
-  AdminSupportModule,
-  AdminCmsModule,
-  AdminSettingsModule,
-  AdminActivityModule
-} from './components/admin_modules';
 
 import { 
   GigExtra, 
@@ -111,6 +84,17 @@ PPH_CATEGORIES.forEach(cat => {
 });
 
 export default function App() {
+  // Clean slate: auto-purge stale localStorage once
+  useEffect(() => {
+    try {
+      if (!localStorage.getItem('wph_clean_slate_v5')) {
+        localStorage.clear();
+        localStorage.setItem('wph_clean_slate_v5', 'true');
+        window.location.reload();
+      }
+    } catch (e) {}
+  }, []);
+
   // Routing
   const [path, setPath] = useState<string>(window.location.pathname || '/');
   
@@ -331,7 +315,7 @@ export default function App() {
     turnaroundDays: number;
     requirements: string;
   }) => {
-    const activeUid = impersonatedUser ? impersonatedUser.id : (currentUser?.id || 'user_1');
+    const activeUid = impersonatedUser ? impersonatedUser.id : (currentUser?.id || 'admin_user');
     const newOrd: Order = {
       id: `ord_${Date.now()}`,
       title: data.title,
@@ -349,23 +333,11 @@ export default function App() {
     navigate(`/messages/${newOrd.id}`);
   };
 
-  // Admin Module Navigation (20 Modules)
   const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
-  const [adminTab, setAdminTab] = useState<
-    'overview' | 'users' | 'projects' | 'gigs' | 'categories' | 
-    'proposals' | 'contracts' | 'payments' | 'wallet' | 'escrow' | 
-    'disputes' | 'refunds' | 'payouts' | 'reviews' | 'messages' | 
-    'reports' | 'support' | 'cms' | 'settings' | 'security' | 'activity' | 'orders'
-  >('overview');
-
   const [platformFee, setPlatformFee] = useState<number>(20);
   const [escrowProtectionDays, setEscrowProtectionDays] = useState<number>(14);
   const [ticketReplyText, setTicketReplyText] = useState<string>('');
   const [disputeNotesText, setDisputeNotesText] = useState<string>('');
-
-  // Activity Audit Log Search & Filter
-  const [activitySearchQuery, setActivitySearchQuery] = useState('');
-  const [activityActionFilter, setActivityActionFilter] = useState('all');
 
   // Freelance Activity view state
   const [freelanceTab, setFreelanceTab] = useState<'projects' | 'offers'>('offers');
@@ -443,10 +415,6 @@ export default function App() {
   const [loginCode, setLoginCode] = useState('');
   const [loginVerificationMessage, setLoginVerificationMessage] = useState('');
 
-  // Admin Portal 2FA States
-  const [adminLoginRequiresCode, setAdminLoginRequiresCode] = useState(false);
-  const [adminLoginCode, setAdminLoginCode] = useState('');
-  const [adminMockCodeDisplay, setAdminMockCodeDisplay] = useState('');
 
   const getDeviceId = (): string => {
     let devId = localStorage.getItem('workperhour_device_id');
@@ -635,8 +603,16 @@ export default function App() {
   const isProjectsList = path === '/projects' || path.startsWith('/projects?') || path === '/search-projects' || path === '/project-search' || path === '/freelance-jobs';
   const isFreelancersPage = path === '/freelancers' || path.startsWith('/freelancers') || path === '/search-freelancers' || path === '/freelancer-search';
   const isOrders = path === '/orders';
-  const isMessages = path.startsWith('/messages');
-  const messageOrderId = path.startsWith('/messages/') ? path.split('/')[2] : null;
+  const isMessages = path.startsWith('/messages') || path.startsWith('/workstream') || path.startsWith('/workstreams') || path.startsWith('/workspace');
+  const messageOrderId = path.startsWith('/messages/') 
+    ? path.split('/')[2] 
+    : path.startsWith('/workstreams/') 
+    ? path.split('/')[2] 
+    : path.startsWith('/workstream/') 
+    ? path.split('/')[2] 
+    : path.startsWith('/workspace/') 
+    ? path.split('/')[2] 
+    : null;
   const isCreateGig = path === '/create-gig';
   const isPostProject = path === '/post-project';
   const isPayments = path.startsWith('/payments');
@@ -718,13 +694,6 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  useEffect(() => {
-    if (path === '/payments') {
-      setAdminTab('payments');
-    } else if (path === '/gigs') {
-      setAdminTab('overview');
-    }
-  }, [path]);
 
   // Sync selected order for messages deep link
   useEffect(() => {
@@ -776,9 +745,9 @@ export default function App() {
     const connectWebSocket = () => {
       if (isUnmounted) return;
       try {
-        const token = localStorage.getItem('workperhour_token') || localStorage.getItem('token') || (impersonatedUser ? impersonatedUser.id : (currentUser ? currentUser.id : 'user_1'));
+        const token = localStorage.getItem('workperhour_token') || localStorage.getItem('token') || (impersonatedUser ? impersonatedUser.id : (currentUser ? currentUser.id : 'admin_user'));
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}?token=${encodeURIComponent(token || 'user_1')}`;
+        const wsUrl = `${protocol}//${window.location.host}?token=${encodeURIComponent(token || 'admin_user')}`;
         
         socket = new WebSocket(wsUrl);
         wsRef.current = socket;
@@ -2379,452 +2348,30 @@ export default function App() {
     return matchesCat && matchesSearch && matchesServiceOpt && matchesSellerLevel && matchesBudget && matchesDelivery && matchesOnline;
   });
 
-  // Dedicated Admin Panel View with 20 Comprehensive Modules & Sidebar
+  // Dedicated Admin Panel Route
   if (isAdmin) {
-    const isUserAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'admin' || impersonatedUser?.role === 'super_admin' || impersonatedUser?.role === 'admin';
-
-    if (!isUserAdmin) {
-      return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
-          <div className="bg-white border border-slate-200 rounded-3xl p-8 max-w-md w-full shadow-2xl space-y-6 text-slate-800">
-            <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-600 text-white flex items-center justify-center font-bold text-xl mx-auto shadow-md">
-                W
-              </div>
-              <h2 className="text-2xl font-bold text-fiverr-dark tracking-tight">Admin Portal Login</h2>
-              <p className="text-xs text-fiverr-muted">Enter your Administrator credentials to access the WorkPerHour Super Admin Suite.</p>
-            </div>
-
-            <form onSubmit={async (e) => {
-              e.preventDefault();
-              const emailToUse = loginEmail.trim() || 'admin@workperhour.com';
-              const passToUse = loginPassword.trim() || 'password123';
-              const deviceId = getDeviceId();
-              try {
-                const payload: any = {
-                  email: emailToUse,
-                  password: passToUse,
-                  deviceId
-                };
-                if (adminLoginRequiresCode && adminLoginCode.trim()) {
-                  payload.code = adminLoginCode.trim();
-                }
-
-                const res = await fetch('/api/auth/login', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(payload)
-                });
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Authentication failed');
-
-                if (data.requiresVerification) {
-                  setAdminLoginRequiresCode(true);
-                  if (data.mockEmailCode) {
-                    setAdminMockCodeDisplay(data.mockEmailCode);
-                  }
-                  alert('Admin 2FA: Verification code sent to admin registered email.');
-                  return;
-                }
-
-                if (data.token) {
-                  localStorage.setItem('workperhour_token', data.token);
-                  localStorage.setItem('token', data.token);
-                }
-                if (data.user) {
-                  updateCurrentUser(data.user);
-                  setImpersonatedUser(null);
-                }
-                setAdminLoginRequiresCode(false);
-                setAdminLoginCode('');
-                alert('Admin session verified successfully! Welcome to Admin Dashboard.');
-                fetchAllAdminData();
-              } catch (err: any) {
-                alert(err.message);
-              }
-            }} className="space-y-4 text-xs">
-              {adminLoginRequiresCode ? (
-                <div className="space-y-4">
-                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs text-slate-800 space-y-1">
-                    <div className="flex items-center gap-1.5 font-bold text-slate-900">
-                      <ShieldAlert className="w-4 h-4 text-emerald-600" />
-                      <span>Admin Verification Code Sent</span>
-                    </div>
-                    <p>Enter the 6-digit email verification code sent to {loginEmail || 'admin@workperhour.com'}.</p>
-                  </div>
-
-                  {adminMockCodeDisplay && (
-                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 flex items-center justify-between">
-                      <span>Admin Security OTP:</span>
-                      <span className="font-mono font-bold text-sm bg-white px-2 py-0.5 rounded border border-emerald-200">{adminMockCodeDisplay}</span>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-fiverr-dark font-bold uppercase mb-1">Enter 6-Digit Email Code</label>
-                    <input 
-                      type="text" 
-                      maxLength={6} 
-                      placeholder="123456" 
-                      value={adminLoginCode} 
-                      onChange={(e) => setAdminLoginCode(e.target.value)} 
-                      required 
-                      autoFocus
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-center text-lg font-mono font-bold tracking-widest text-fiverr-dark focus:outline-none focus:border-emerald-500" 
-                    />
-                  </div>
-
-                  <button 
-                    type="submit" 
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md transition-colors text-sm cursor-pointer"
-                  >
-                    Verify Email Code & Unlock Admin Suite
-                  </button>
-
-                  <div className="flex items-center justify-between text-xs pt-1">
-                    <button 
-                      type="button" 
-                      onClick={async () => {
-                        try {
-                          const res = await fetch('/api/auth/resend-email-code', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ email: loginEmail || 'admin@workperhour.com' })
-                          });
-                          const data = await res.json();
-                          if (res.ok && data.mockEmailCode) {
-                            setAdminMockCodeDisplay(data.mockEmailCode);
-                            alert('New verification code sent to admin email.');
-                          }
-                        } catch (e) {
-                          console.warn(e);
-                        }
-                      }} 
-                      className="text-emerald-700 font-semibold hover:underline cursor-pointer"
-                    >
-                      Resend Code
-                    </button>
-                    <button 
-                      type="button" 
-                      onClick={() => { setAdminLoginRequiresCode(false); setAdminLoginCode(''); }} 
-                      className="text-fiverr-muted hover:text-slate-800 cursor-pointer"
-                    >
-                      Back to Password
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-fiverr-dark font-bold uppercase mb-1">Admin Email ID</label>
-                    <input 
-                      type="email" 
-                      placeholder="admin@workperhour.com"
-                      value={loginEmail || 'admin@workperhour.com'}
-                      onChange={(e) => setLoginEmail(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500 font-medium"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-fiverr-dark font-bold uppercase mb-1">Admin Password</label>
-                    <input 
-                      type="password" 
-                      placeholder="••••••••••••"
-                      value={loginPassword || 'password123'}
-                      onChange={(e) => setLoginPassword(e.target.value)}
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-fiverr-dark focus:outline-none focus:border-emerald-500"
-                    />
-                  </div>
-
-                  <button 
-                    type="submit" 
-                    className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-md transition-colors text-sm cursor-pointer"
-                  >
-                    Authenticate & Request Email Code
-                  </button>
-
-                  <div className="pt-2 text-center">
-                    <button 
-                      type="button"
-                      onClick={() => {
-                        setLoginEmail('admin@workperhour.com');
-                        setLoginPassword('password123');
-                      }}
-                      className="text-xs text-emerald-600 hover:text-emerald-700 font-semibold underline cursor-pointer"
-                    >
-                      ⚡ Click to autofill Demo Admin Credentials
-                    </button>
-                  </div>
-                </>
-              )}
-
-              <div className="pt-4 border-t border-slate-100 text-center">
-                <a 
-                  href="/gigs" 
-                  onClick={(e) => navigate('/gigs', e)}
-                  className="text-xs text-fiverr-muted hover:text-slate-800 font-medium"
-                >
-                  ← Return to Marketplace Home
-                </a>
-              </div>
-            </form>
-          </div>
-        </div>
-      );
-    }
-
-    const effectiveAdminUser = impersonatedUser || currentUser || usersList.find(u => u.role === 'admin' || u.role === 'super_admin') || usersList[0];
     return (
-      <div className="min-h-screen bg-slate-50 text-fiverr-dark flex font-sans selection:bg-emerald-500 selection:text-white">
-        {/* ADMIN SIDEBAR */}
-        <aside className="w-72 bg-white border-r border-slate-200 flex flex-col justify-between p-5 shrink-0 sticky top-0 h-screen overflow-y-auto shadow-xs">
-          <div>
-            {/* Admin Brand */}
-            <div className="flex items-center justify-between pb-6 mb-6 border-b border-slate-200">
-              <a href="/gigs" onClick={(e) => navigate('/gigs', e)} className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-base shadow-sm">
-                  W
-                </div>
-                <div>
-                  <span className="text-sm font-bold text-fiverr-dark block leading-none">WorkPerHour</span>
-                  <span className="text-[10px] text-emerald-600 font-semibold tracking-wider uppercase">Super Admin Suite</span>
-                </div>
-              </a>
-              <span className="text-[9px] bg-emerald-50 text-emerald-700 font-mono px-2 py-0.5 rounded border border-emerald-200">v3.0 RBAC</span>
-            </div>
-
-            {/* Sidebar Navigation: 20 Enterprise Admin Modules */}
-            <nav className="space-y-1">
-              {[
-                { id: 'overview', label: '1. Dashboard Overview', icon: LayoutDashboard },
-                { id: 'users', label: '2. User Management', icon: Users },
-                { id: 'projects', label: '3. Projects & RFPs', icon: Briefcase },
-                { id: 'gigs', label: '4. Services & Gigs', icon: Layers },
-                { id: 'orders', label: '5. All Orders', icon: Shield },
-                { id: 'categories', label: '6. Categories & Slugs', icon: Sliders },
-                { id: 'proposals', label: '7. Proposals & Bids', icon: FileText },
-                { id: 'contracts', label: '8. Contracts & Milestones', icon: CheckCircle2 },
-                { id: 'payments', label: '9. Payment Gateways', icon: DollarSign },
-                { id: 'wallet', label: '10. Wallet & Double Ledger', icon: Wallet },
-                { id: 'escrow', label: '11. Escrow Vault (14-Day)', icon: ShieldCheck },
-                { id: 'disputes', label: '12. Dispute Resolution', icon: Scale },
-                { id: 'refunds', label: '13. Refund Requests', icon: CornerDownLeft },
-                { id: 'payouts', label: '14. Freelancer Payouts', icon: TrendingUp },
-                { id: 'reviews', label: '15. Reviews & Moderation', icon: Star },
-                { id: 'messages', label: '16. Messages & Chat Audit', icon: MessageCircle },
-                { id: 'reports', label: '17. Flagged Reports', icon: Flag },
-                { id: 'support', label: '18. Support Ticket Desk', icon: HelpCircle },
-                { id: 'cms', label: '19. CMS & Legal Policies', icon: FileCode },
-                { id: 'settings', label: '20. Site & Fee Settings', icon: Settings },
-                { id: 'activity', label: '21. Activity & Audit Trail', icon: Activity }
-              ].map(item => {
-                const IconComp = item.icon;
-                const isActive = adminTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setAdminTab(item.id as any)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${isActive ? 'bg-emerald-600 text-white shadow-xs font-bold' : 'text-fiverr-dark hover:text-fiverr-dark hover:bg-slate-100'}`}
-                  >
-                    <IconComp className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </button>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* System Status & Exit */}
-          <div className="space-y-4 pt-6 border-t border-slate-200 mt-6">
-            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] uppercase font-bold text-fiverr-muted tracking-wider">Gateway Telemetry</span>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              </div>
-              <p className="text-[11px] text-fiverr-dark font-medium">RBAC Active · 14-Day Escrow Locked</p>
-            </div>
-
-            <a 
-              href="/gigs" 
-              onClick={(e) => navigate('/gigs', e)}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-xs font-bold text-fiverr-dark bg-slate-100 hover:bg-slate-200 transition-colors border border-slate-200"
-            >
-              <LogOut className="w-4 h-4 text-emerald-600" />
-              <span>Exit Admin Portal</span>
-            </a>
-          </div>
-        </aside>
-
-        {/* MAIN ADMIN CONTENT AREA */}
-        <main className="flex-1 p-8 overflow-y-auto">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-200">
-            <div>
-              <span className="text-xs font-semibold text-emerald-600 block mb-1">Super Administrator Console</span>
-              <h1 className="text-2xl font-bold text-fiverr-dark">
-                {adminTab === 'overview' && '1. Admin Dashboard & Metrics'}
-                {adminTab === 'users' && '2. User Management & Impersonation'}
-                {adminTab === 'projects' && '3. Projects & RFP Moderation'}
-                {adminTab === 'gigs' && '4. Services & Gigs Management'}
-                {adminTab === 'orders' && '5. All Orders Management'}
-                {adminTab === 'categories' && '6. Categories, Subcategories & Slugs'}
-                {adminTab === 'proposals' && '7. Proposals & Bid Audit'}
-                {adminTab === 'contracts' && '8. Contracts & Milestone Timelines'}
-                {adminTab === 'payments' && '9. Payments & Razorpay/Stripe Logs'}
-                {adminTab === 'wallet' && '10. User Wallets & Double-Entry Ledger'}
-                {adminTab === 'escrow' && '11. Escrow Management (Mandatory 14-Day Protection)'}
-                {adminTab === 'disputes' && '12. Dispute Investigation & Resolution'}
-                {adminTab === 'refunds' && '13. Refund Requests & Approvals'}
-                {adminTab === 'payouts' && '14. Freelancer Payouts & Disbursements'}
-                {adminTab === 'reviews' && '15. Reviews & Ratings Moderation'}
-                {adminTab === 'messages' && '16. Messages & Conversation Audit'}
-                {adminTab === 'reports' && '17. Flagged Reports & Cases'}
-                {adminTab === 'support' && '18. Support Ticket Help Desk'}
-                {adminTab === 'cms' && '19. CMS Pages & Legal Policies'}
-                {adminTab === 'settings' && '20. Site & Fee Settings'}
-                {(adminTab === 'security' || adminTab === 'activity') && '21. Admin Activity Logs & Security Audit Trail'}
-              </h1>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-fiverr-dark bg-white px-3 py-1.5 rounded-lg border border-slate-200 font-mono shadow-xs">
-                RBAC Level: Super Admin
-              </span>
-            </div>
-          </div>
-
-          {/* MODULE 1: DASHBOARD OVERVIEW */}
-          {adminTab === 'overview' && (
-            <AdminOverviewModule 
-              allUsers={usersList} 
-              allProjects={projects} 
-              allGigs={gigs} 
-              allOrders={orders} 
-              escrowAccounts={orders} 
-              platformBalance={orders.reduce((sum, o) => sum + o.amount, 0) * (platformFee / 100)} 
-            />
-          )}
-
-          {/* MODULE 2: USER MANAGEMENT */}
-          {adminTab === 'users' && (
-            <AdminUsersModule 
-              allUsers={usersList} 
-              onImpersonateUser={(userId) => { const u = usersList.find(x => x.id === userId); if (u) setImpersonatedUser(u); }} 
-              onToggleUserStatus={(userId) => { setUsersList(prev => prev.map(u => u.id === userId ? { ...u, status: u.status === 'suspended' ? 'active' : 'suspended' } : u)); }} 
-            />
-          )}
-
-          {/* MODULE 3: PROJECTS MANAGEMENT */}
-          {adminTab === 'projects' && (
-            <AdminProjectsModule allProjects={projects} />
-          )}
-
-          {/* MODULE 4: FREELANCER GIGS & SERVICES MANAGEMENT */}
-          {adminTab === 'gigs' && (
-            <AdminGigsModule allGigs={gigs} />
-          )}
-
-          {/* MODULE 5: CATEGORIES & SUBCATEGORIES MANAGEMENT */}
-          {adminTab === 'categories' && (
-            <AdminCategoriesModule />
-          )}
-
-          {/* MODULE 6: ALL ORDERS MANAGEMENT */}
-          {adminTab === 'orders' && (
-            <AdminOrdersModule allOrders={orders} />
-          )}
-
-          {/* MODULE 7: PROPOSALS & BIDS MANAGEMENT */}
-          {adminTab === 'proposals' && (
-            <AdminProposalsModule />
-          )}
-
-          {/* MODULE 8: CONTRACTS & MILESTONES */}
-          {adminTab === 'contracts' && (
-            <AdminContractsModule />
-          )}
-
-          {/* MODULE 9: PAYMENTS */}
-          {adminTab === 'payments' && (
-            <AdminPaymentsModule />
-          )}
-
-          {/* MODULE 10: USER WALLETS */}
-          {adminTab === 'wallet' && (
-            <AdminWalletModule />
-          )}
-
-          {/* MODULE 11: ESCROW MANAGEMENT */}
-          {adminTab === 'escrow' && (
-            <AdminEscrowModule escrowAccounts={orders} />
-          )}
-
-          {/* MODULE 12: DISPUTES */}
-          {adminTab === 'disputes' && (
-            <AdminDisputesModule />
-          )}
-
-          {/* MODULE 13: REFUNDS */}
-          {adminTab === 'refunds' && (
-            <AdminRefundsModule />
-          )}
-
-          {/* MODULE 14: PAYOUTS */}
-          {adminTab === 'payouts' && (
-            <AdminPayoutsModule />
-          )}
-
-          {/* MODULE 15: REVIEWS */}
-          {adminTab === 'reviews' && (
-            <AdminReviewsModule />
-          )}
-
-          {/* MODULE 16: MESSAGES */}
-          {adminTab === 'messages' && (
-            <AdminMessagesModule />
-          )}
-
-          {/* MODULE 17: REPORTS */}
-          {adminTab === 'reports' && (
-            <AdminReportsModule />
-          )}
-
-          {/* MODULE 18: SUPPORT TICKETS */}
-          {adminTab === 'support' && (
-            <AdminSupportModule />
-          )}
-
-          {/* MODULE 19: CMS */}
-          {adminTab === 'cms' && (
-            <AdminCmsModule />
-          )}
-
-          {/* MODULE 20: SETTINGS */}
-          {adminTab === 'settings' && (
-            <AdminSettingsModule />
-          )}
-
-          {/* MODULE 21: ACTIVITY & AUDIT */}
-          {(adminTab === 'security' || adminTab === 'activity') && (
-            <AdminActivityModule />
-          )}
-
-          {/* FALLBACK FOR OTHER MODULES */}
-          {!['overview', 'users', 'projects', 'gigs', 'categories', 'orders', 'proposals', 'wallet', 'escrow', 'payouts', 'disputes', 'support', 'settings', 'security', 'activity'].includes(adminTab) && (
-            <div className="bg-white border border-slate-200 rounded-3xl p-8 text-center space-y-3 shadow-xs">
-              <ShieldCheck className="w-8 h-8 text-emerald-600 mx-auto" />
-              <h3 className="text-base font-bold text-fiverr-dark uppercase">{adminTab} Module Active</h3>
-              <p className="text-xs text-fiverr-muted">All data records and audit logs for this module are synchronized with PostgreSQL storage.</p>
-            </div>
-          )}
-        </main>
-      </div>
+      <AdminPage
+        currentUser={currentUser}
+        impersonatedUser={impersonatedUser}
+        updateCurrentUser={updateCurrentUser}
+        setImpersonatedUser={setImpersonatedUser}
+        usersList={usersList}
+        setUsersList={setUsersList}
+        projects={projects}
+        gigs={gigs}
+        orders={orders}
+        proposals={proposals}
+        platformFee={platformFee}
+        navigate={navigate}
+        fetchAllAdminData={fetchAllAdminData}
+        getDeviceId={getDeviceId}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-fiverr-dark font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen w-full max-w-full overflow-x-hidden flex flex-col bg-slate-50 text-fiverr-dark font-sans selection:bg-emerald-500 selection:text-white">
       {/* IMPERSONATION BANNER */}
       {impersonatedUser && (
         <div className="bg-indigo-600 text-white px-6 py-2.5 flex items-center justify-between text-xs font-bold shadow-md sticky top-0 z-50">
@@ -2841,7 +2388,7 @@ export default function App() {
         </div>
       )}
 
-      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 backdrop-blur-md px-6 py-3.5 flex items-center justify-between shadow-xs">
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/80 backdrop-blur-md px-4 sm:px-6 py-3.5 flex items-center justify-between shadow-xs w-full max-w-full">
         {/* Left Side: Brand & Nav Links */}
         <div className="flex items-center gap-10">
           <div className="flex items-center gap-3">
@@ -2878,7 +2425,7 @@ export default function App() {
 
               {isHeaderCategoriesDropdownOpen && (
                 <div 
-                  className="absolute left-0 top-full -mt-0.5 pt-2 w-[720px] z-[120] animate-in fade-in duration-150"
+                  className="absolute left-0 top-full -mt-0.5 pt-2 w-[720px] max-w-[calc(100vw-2rem)] z-[120] animate-in fade-in duration-150"
                   onMouseEnter={handleHeaderCategoriesMouseEnter}
                   onMouseLeave={handleHeaderCategoriesMouseLeave}
                 >
@@ -3334,7 +2881,7 @@ export default function App() {
 
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+      <main className="flex-1 max-w-7xl w-full min-w-0 mx-auto px-4 sm:px-6 py-8 overflow-x-hidden">
         
         {/* VIEW: FREELANCER ACTIVITY (/freelance-activity) */}
         {path === '/freelance-activity' && (
@@ -3933,8 +3480,8 @@ export default function App() {
 
                         {/* Price */}
                          <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                          <span className="text-xs uppercase font-normal text-fiverr-muted">Starting at</span>
-                          <span className="text-xl font-bold text-fiverr-dark">${gig.price}</span>
+                          <span className="text-[11px] uppercase font-normal text-fiverr-muted">Starting at</span>
+                          <span className="text-[18px] font-bold text-fiverr-dark">${gig.price}</span>
                         </div>
                       </div>
                     </div>
@@ -3996,291 +3543,159 @@ export default function App() {
                 ))}
               </div>
             )}
+
+            {/* Active Buyer Projects Section below Gigs on Homepage - LISTICLE VIEW */}
+            <div className="mt-16 pt-12 border-t border-slate-200/80">
+              <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+                <div>
+                  <h2 className="text-2xl font-bold text-fiverr-dark tracking-tight">
+                    Active Buyer Projects & Bidding Opportunities
+                  </h2>
+                  <p className="text-xs text-fiverr-muted mt-1 max-w-2xl">
+                    Explore open client requests with funded escrow budgets. Submit proposals, bid on custom work, and collaborate securely.
+                  </p>
+                </div>
+
+                <button
+                  onClick={(e) => navigate('/projects', e)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
+                >
+                  <span>View All Projects ({projects.length})</span>
+                  <ChevronRight className="w-4 h-4 text-emerald-400" />
+                </button>
+              </div>
+
+              {/* Listicle View of Projects */}
+              <div className="space-y-4">
+                {projects.slice(0, 8).map((project) => {
+                  const projectUrl = `/projects/${project.id}`;
+                  return (
+                    <div
+                      key={project.id}
+                      onClick={(e) => navigate(projectUrl, e)}
+                      className="bg-white rounded-2xl border border-slate-200 p-5 hover:border-emerald-500/50 hover:shadow-lg transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group cursor-pointer"
+                    >
+                      <div className="flex-1 min-w-0 space-y-2.5">
+                        {/* Header Row: Buyer Info, Category Badge & Urgency */}
+                        <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                          <div className="flex items-center gap-2">
+                            <img 
+                              src={project.buyerAvatar} 
+                              alt={project.buyerName} 
+                              className="w-6 h-6 rounded-full object-cover shrink-0 ring-1 ring-slate-200" 
+                            />
+                            <span className="font-bold text-fiverr-dark text-xs">{project.buyerName}</span>
+                            <span className="text-[11px] text-slate-400 font-medium">
+                              {project.countryFlag} {project.location || 'Client'}
+                            </span>
+                          </div>
+
+                          <span className="text-slate-300">•</span>
+
+                          <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 uppercase tracking-wider">
+                            {project.category}
+                          </span>
+
+                          {project.isUrgent && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-100 text-orange-800">
+                              <Flame className="w-3 h-3 text-orange-500" /> Urgent
+                            </span>
+                          )}
+
+                          {project.featured && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                              <Sparkles className="w-3 h-3 text-amber-500" /> Featured
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Title */}
+                        <h3 className="font-bold text-base text-fiverr-dark group-hover:text-emerald-600 transition-colors line-clamp-1 leading-snug">
+                          <a 
+                            href={projectUrl} 
+                            onClick={(e) => { e.stopPropagation(); navigate(projectUrl, e); }}
+                            className="hover:text-emerald-600 transition-colors"
+                          >
+                            {project.title}
+                          </a>
+                        </h3>
+
+                        {/* Description */}
+                        <p className="text-xs text-fiverr-muted line-clamp-2 leading-relaxed">
+                          {project.description}
+                        </p>
+
+                        {/* Skills Chips & Project Stats */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          {project.skills && project.skills.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 items-center">
+                              {project.skills.slice(0, 4).map((skill, idx) => (
+                                <span key={idx} className="text-[10px] font-medium bg-slate-50 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200/60">
+                                  {skill}
+                                </span>
+                              ))}
+                              {project.skills.length > 4 && (
+                                <span className="text-[10px] text-slate-400 font-medium">+{project.skills.length - 4} more</span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-3 text-[11px] text-slate-400 font-medium ml-auto md:ml-0 pt-1 md:pt-0">
+                            <span className="flex items-center gap-1">
+                              <Send className="w-3 h-3 text-slate-400" />
+                              <strong className="text-slate-700 font-bold">{project.proposalsCount || 0}</strong> proposals
+                            </span>
+                            <span>•</span>
+                            <span className="flex items-center gap-1">
+                              <Clock className="w-3 h-3 text-slate-400" />
+                              Est. {project.deadlineDays || 7} days
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Right Side: Budget & Submit Proposal Button */}
+                      <div className="flex md:flex-col items-center md:items-end justify-between w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 gap-3 shrink-0">
+                        <div className="text-left md:text-right">
+                          <span className="text-[10px] text-fiverr-muted uppercase tracking-wider font-extrabold block">
+                            {project.projectType === 'hourly' ? 'Hourly Budget' : 'Fixed Budget'}
+                          </span>
+                          <span className="text-lg font-black text-emerald-600 font-mono">
+                            ${project.budgetMin} - ${project.budgetMax}
+                            {project.projectType === 'hourly' && <span className="text-xs font-normal text-slate-500">/hr</span>}
+                          </span>
+                        </div>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(projectUrl, e);
+                          }}
+                          className="px-4 py-2 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-all shadow-xs shrink-0 cursor-pointer flex items-center gap-1.5"
+                        >
+                          <span>Submit Proposal</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         )}
 
         {/* VIEW 2: GIG INNER DETAIL PAGE (Fiverr URL Format: /:username/:slug) */}
         {isGigDetail && currentGig && (
-          <div className="max-w-6xl mx-auto space-y-8">
-            {/* Breadcrumbs */}
-            <div className="flex items-center gap-2 text-xs text-fiverr-muted font-medium">
-              <a href="/gigs" onClick={(e) => navigate('/gigs', e)} className="hover:text-fiverr-dark">Home</a>
-              <span>/</span>
-              <a href={`/categories/${CATEGORY_SLUGS[currentGig.category] || 'development-it'}`} onClick={(e) => navigate(`/categories/${CATEGORY_SLUGS[currentGig.category] || 'development-it'}`, e)} className="hover:text-fiverr-dark">
-                {currentGig.category}
-              </a>
-              <span>/</span>
-              <span className="text-fiverr-dark font-semibold truncate max-w-xs">{currentGig.subcategory || 'Services'}</span>
-            </div>
-
-            {/* Title & Seller Header */}
-            <div>
-              <h1 className="text-3xl font-bold text-fiverr-dark tracking-tight leading-tight mb-4">
-                {currentGig.title}
-              </h1>
-
-              <div className="flex flex-wrap items-center gap-4 text-xs">
-                <div className="flex items-center gap-2.5">
-                  <img src={currentGig.freelancerAvatar} alt={currentGig.freelancerName} className="w-10 h-10 rounded-full object-cover ring-2 ring-slate-100" />
-                  <div>
-                    <span className="font-bold text-fiverr-dark block">{currentGig.freelancerName}</span>
-                    <span className="text-fiverr-muted font-mono">@{currentGig.freelancerUsername || slugify(currentGig.freelancerName)}</span>
-                  </div>
-                </div>
-
-                <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
-
-                <div className="flex items-center gap-1 font-bold text-fiverr-dark">
-                  <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                  <span>{currentGig.rating}</span>
-                  <span className="text-slate-400 font-normal">({currentGig.reviewsCount.toLocaleString()} reviews)</span>
-                </div>
-
-                <div className="h-6 w-px bg-slate-200 hidden sm:block"></div>
-
-                <span className="bg-amber-100 text-amber-800 font-bold px-2.5 py-1 rounded-md text-[11px]">
-                  {currentGig.freelancerLevel || 'Top Rated Seller'}
-                </span>
-
-                <span className="text-emerald-700 bg-emerald-50 border border-emerald-200 font-semibold px-2.5 py-1 rounded-md text-[11px]">
-                  3 orders in queue
-                </span>
-              </div>
-            </div>
-
-            {/* Main Content Grid: Gallery & Description Left, Package Box Right */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
-              
-              {/* LEFT COLUMN: Gallery & Details */}
-              <div className="lg:col-span-2 space-y-8">
-                {/* Main Media Preview: Interactive Promotional Explainer Video Player */}
-                <div className="bg-slate-900 rounded-3xl overflow-hidden border border-slate-800 shadow-xl relative group">
-                  {isPuppetVideoPlaying ? (
-                    <div className="relative aspect-video bg-black flex flex-col items-center justify-center text-white p-6">
-                      <div className="absolute inset-0 bg-cover bg-center opacity-40" style={{ backgroundImage: `url('https://images.unsplash.com/photo-1536240478700-b869070f9279?w=1200&h=700&fit=crop')` }}></div>
-                      <div className="relative z-10 text-center space-y-4">
-                        <div className="w-16 h-16 rounded-full bg-emerald-600/90 text-white flex items-center justify-center mx-auto shadow-lg animate-pulse">
-                          <Sparkles className="w-8 h-8" />
-                        </div>
-                        <h3 className="text-xl font-bold tracking-tight">Playing Promotional Explainer Video (1080p HD)</h3>
-                        <p className="text-xs text-slate-300 max-w-md mx-auto">Custom puppet character rigging, professional voiceover, and dynamic motion graphics.</p>
-                        
-                        <div className="w-full max-w-md bg-white/10 backdrop-blur-md rounded-2xl p-3 flex items-center gap-4 mt-6">
-                          <button onClick={() => setIsPuppetVideoPlaying(false)} className="px-3 py-1 bg-white text-fiverr-dark font-bold rounded-lg text-xs hover:bg-slate-100 cursor-pointer">Pause</button>
-                          <div className="flex-1 h-2 bg-white/20 rounded-full overflow-hidden">
-                            <div className="w-3/5 h-full bg-emerald-500 animate-pulse"></div>
-                          </div>
-                          <span className="text-[10px] font-mono">01:14 / 02:00</span>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="relative aspect-video bg-slate-900 flex items-center justify-center group cursor-pointer" onClick={() => setIsPuppetVideoPlaying(true)}>
-                      <img 
-                        src={currentGig.image} 
-                        alt={currentGig.title} 
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1563089145-599997674d42?w=800&h=500&fit=crop';
-                        }}
-                        className="w-full h-full object-cover opacity-80 group-hover:opacity-90 transition-opacity" 
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent flex flex-col justify-between p-6">
-                        <div className="flex items-center justify-between">
-                          <span className="bg-emerald-500 text-white text-[10px] font-bold uppercase tracking-widest px-3 py-1 rounded-full shadow-md">
-                            🎬 Promotional Explainer Video
-                          </span>
-                          <span className="bg-black/60 backdrop-blur-md text-white text-[10px] font-mono px-2.5 py-1 rounded-lg">02:00 HD</span>
-                        </div>
-
-                        <div className="text-center">
-                          <div className="w-20 h-20 rounded-full bg-emerald-600 text-white flex items-center justify-center mx-auto shadow-2xl group-hover:scale-110 transition-transform mb-3 border-4 border-white/20">
-                            <svg className="w-8 h-8 fill-current ml-1" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-                          </div>
-                          <span className="text-white font-bold text-sm drop-shadow-md">Click to Play Promotional Explainer Video</span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-300 font-medium">
-                          <span>Directed by {currentGig.freelancerName}</span>
-                          <span>Puppet Animation & Character Rigging</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* About This Gig */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xs space-y-4">
-                  <h2 className="text-xl font-bold text-fiverr-dark border-b border-slate-100 pb-3">About This Gig</h2>
-                  <p className="text-base text-fiverr-dark leading-body whitespace-pre-line font-normal">
-                    {currentGig.description}
-                  </p>
-
-                  <div className="pt-4 border-t border-slate-100 grid grid-cols-2 gap-4 text-xs text-fiverr-dark">
-                    <div>
-                      <span className="font-bold text-fiverr-dark block mb-1">Service Category</span>
-                      <span>{currentGig.category}</span>
-                    </div>
-                    <div>
-                      <span className="font-bold text-fiverr-dark block mb-1">Subcategory</span>
-                      <span>{currentGig.subcategory || 'General'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* About The Seller */}
-                <div className="bg-white rounded-3xl border border-slate-200 p-8 shadow-xs space-y-6">
-                  <h2 className="text-xl font-bold text-fiverr-dark border-b border-slate-100 pb-3">About The Seller</h2>
-                  
-                  <div className="flex items-center gap-4">
-                    <img src={currentGig.freelancerAvatar} alt={currentGig.freelancerName} className="w-16 h-16 rounded-full object-cover ring-4 ring-slate-100" />
-                    <div>
-                      <h3 className="text-base font-bold text-fiverr-dark">{currentGig.freelancerName}</h3>
-                      <p className="text-xs text-fiverr-muted font-mono">@{currentGig.freelancerUsername || slugify(currentGig.freelancerName)}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs font-bold text-amber-500 flex items-center gap-1">
-                          <Star className="w-3.5 h-3.5 fill-amber-500" /> {currentGig.rating}
-                        </span>
-                        <span className="text-xs text-slate-400">({currentGig.reviewsCount} reviews)</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 text-xs">
-                    <div>
-                      <span className="text-slate-400 block mb-1">From</span>
-                      <span className="font-bold text-slate-800">United States</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-1">Member since</span>
-                      <span className="font-bold text-slate-800">Jan 2024</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-1">Avg. response time</span>
-                      <span className="font-bold text-slate-800">1 hour</span>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 block mb-1">Last delivery</span>
-                      <span className="font-bold text-slate-800">about 2 hours</span>
-                    </div>
-                  </div>
-
-                  <button 
-                    onClick={() => handleContactSeller(currentGig.freelancerId, currentGig.freelancerName, currentGig.title)}
-                    className="w-full sm:w-auto px-6 py-2.5 border-2 border-slate-900 text-fiverr-dark font-bold rounded-xl text-xs hover:bg-slate-900 hover:text-white transition-colors flex items-center justify-center gap-2"
-                  >
-                    <MessageSquare className="w-4 h-4 text-emerald-600" />
-                    <span>Contact Seller ({currentGig.freelancerName})</span>
-                  </button>
-                </div>
-
-              </div>
-
-              {/* RIGHT COLUMN: Simple Order Box with Optional Extras */}
-              <div className="lg:col-span-1 sticky top-24">
-                <div className="bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden p-6 space-y-6">
-                  {(() => {
-                    const extrasList = currentGig.extras || [];
-                    const selectedExtrasObjects = extrasList.filter(e => selectedExtras.includes(e.id));
-                    const extrasTotalUSD = selectedExtrasObjects.reduce((sum, e) => sum + e.price, 0);
-                    const totalUSD = currentGig.price + extrasTotalUSD;
-                    const totalINR = totalUSD * 83;
-
-                    return (
-                      <>
-                        <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-                          <div>
-                            <span className="text-xs font-normal text-fiverr-muted uppercase tracking-wider block">Gig Base Price</span>
-                            <span className="text-2xl font-bold text-fiverr-dark">₹{(currentGig.price * 83).toLocaleString()}</span>
-                          </div>
-                          <span className="text-xs font-semibold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-lg">
-                            ${currentGig.price} USD
-                          </span>
-                        </div>
-
-                        <div className="flex items-center justify-between text-xs font-bold text-fiverr-dark">
-                          <div className="flex items-center gap-1.5">
-                            <Clock className="w-4 h-4 text-fiverr-muted" />
-                            <span>{currentGig.deliveryDays} Days Delivery</span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            <RefreshCw className="w-4 h-4 text-fiverr-muted" />
-                            <span>Unlimited Revisions</span>
-                          </div>
-                        </div>
-
-                        {/* Optional Gig Extras Section */}
-                        {extrasList.length > 0 && (
-                          <div className="space-y-3 pt-4 border-t border-slate-100">
-                            <h4 className="text-xs font-bold text-fiverr-dark uppercase tracking-wider">
-                              Upgrade Your Order with Extras:
-                            </h4>
-                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                              {extrasList.map(extra => {
-                                const isChecked = selectedExtras.includes(extra.id);
-                                return (
-                                  <label 
-                                    key={extra.id} 
-                                    className={`flex items-start gap-3 p-3 rounded-2xl border text-xs cursor-pointer transition-all ${isChecked ? 'bg-emerald-50/60 border-emerald-300 text-fiverr-dark font-semibold' : 'bg-slate-50 border-slate-200 text-fiverr-dark hover:bg-slate-100'}`}
-                                  >
-                                    <input 
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setSelectedExtras(prev => [...prev, extra.id]);
-                                        } else {
-                                          setSelectedExtras(prev => prev.filter(id => id !== extra.id));
-                                        }
-                                      }}
-                                      className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4 shrink-0"
-                                    />
-                                    <div className="flex-1 flex items-center justify-between gap-2">
-                                      <span>{extra.title}</span>
-                                      <span className="font-bold text-fiverr-dark shrink-0">+₹{(extra.price * 83).toLocaleString()}</span>
-                                    </div>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Total Summary */}
-                         <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
-                          <div>
-                            <span className="text-xs text-fiverr-muted block font-normal">Total Escrow Amount</span>
-                            {selectedExtras.length > 0 && (
-                              <span className="text-xs text-emerald-600 font-bold block">Includes {selectedExtras.length} selected extra(s)</span>
-                            )}
-                          </div>
-                          <span className="text-2xl font-bold text-fiverr-dark">₹{totalINR.toLocaleString()}</span>
-                        </div>
-
-                        <div className="bg-emerald-50 border border-emerald-200/60 rounded-2xl p-3 flex items-start gap-2.5 text-[11px] text-emerald-900">
-                          <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                          <span>100% Escrow Protection. Funds are safely held until work is delivered and approved.</span>
-                        </div>
-
-                        <button 
-                          onClick={() => handleCreateOrder(
-                            `${currentGig.title}${selectedExtrasObjects.length > 0 ? ` (with ${selectedExtrasObjects.length} extra add-ons)` : ''}`, 
-                            totalUSD, 
-                            currentGig.freelancerId
-                          )}
-                          className="w-full py-4 bg-emerald-500 text-slate-950 font-bold rounded-2xl hover:bg-emerald-400 transition-colors shadow-md text-xs flex items-center justify-center gap-2"
-                        >
-                          <Lock className="w-4 h-4" />
-                          <span>Fund ₹{totalINR.toLocaleString()} in Escrow & Order Now</span>
-                        </button>
-                      </>
-                    );
-                  })()}
-                </div>
-              </div>
-
-            </div>
-          </div>
+          <GigDetailView
+            currentGig={currentGig}
+            gigs={gigs}
+            reviews={reviews}
+            navigate={navigate}
+            handleContactSeller={handleContactSeller}
+            handleCreateOrder={handleCreateOrder}
+            slugify={slugify}
+          />
         )}
 
         {/* VIEW 3: BUYER REQUESTS / PROJECT SEARCH (/projects) */}

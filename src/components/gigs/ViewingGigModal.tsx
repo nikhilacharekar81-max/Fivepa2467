@@ -1,19 +1,25 @@
 import React from 'react';
 import { Star, Trash2, Settings, ShieldCheck } from 'lucide-react';
 import { Gig } from '../../types';
+import { RelatedGigsSection } from './RelatedGigsSection';
+import { Reviews } from '../gig_reviews';
 
 interface ViewingGigModalProps {
   viewingGig: Gig | null;
   onClose: () => void;
   onDelete: (id: string) => void;
   onEdit: (gig: Gig) => void;
+  allGigs?: Gig[];
+  onSelectGig?: (gig: Gig) => void;
 }
 
 export const ViewingGigModal: React.FC<ViewingGigModalProps> = ({
   viewingGig,
   onClose,
   onDelete,
-  onEdit
+  onEdit,
+  allGigs,
+  onSelectGig
 }) => {
   if (!viewingGig) return null;
 
@@ -140,6 +146,17 @@ export const ViewingGigModal: React.FC<ViewingGigModalProps> = ({
             <p className="text-purple-900">{viewingGig.moderationNotes}</p>
           </div>
         )}
+
+        {/* CLIENT REVIEWS SECTION */}
+        <Reviews currentGig={viewingGig} />
+
+        {/* RELATED & SIMILAR GIGS SECTION */}
+        <RelatedGigsSection
+          currentGig={viewingGig}
+          allGigs={allGigs}
+          onSelectGig={onSelectGig}
+          maxItems={3}
+        />
 
         <div className="flex justify-between items-center pt-4 border-t border-slate-100">
           <button 

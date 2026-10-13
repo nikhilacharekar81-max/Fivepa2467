@@ -68,7 +68,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
               <label className="text-xs font-bold text-fiverr-dark block mb-1">Registered Email or Mobile Number</label>
               <input 
                 type="text" 
-                placeholder="elena@example.com or +1234567890" 
+                placeholder="user@example.com or +1234567890" 
                 value={forgotQuery} 
                 onChange={(e) => setForgotQuery(e.target.value)} 
                 required 

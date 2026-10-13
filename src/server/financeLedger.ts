@@ -275,10 +275,8 @@ export class FinanceLedgerEngine {
     return result;
   }
 
-  // ----- seed data ---------------------------------------------------------
-  // Wallet balances are NEVER seeded directly: every balance is produced by a posted journal.
   private seedInitialFinancialData() {
-    // Initialized in clean, empty state
+    // Clean slate: no initial seeded financial data
   }
 
   // ----- core posting ------------------------------------------------------

@@ -52,43 +52,7 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
     (g.freelancerName && profileUser.name && g.freelancerName.toLowerCase() === profileUser.name.toLowerCase())
   );
 
-  const defaultSampleOffers = [
-    {
-      id: 'off_1',
-      title: 'I will build a high-performance full-stack web app in React and Node',
-      category: 'Technology & Programming',
-      price: 950,
-      deliveryDays: 7,
-      rating: 4.9,
-      reviewsCount: 142,
-      image: 'https://images.unsplash.com/photo-1555066931-4365d14bab8c?w=400&h=250&fit=crop',
-      featured: true
-    },
-    {
-      id: 'off_2',
-      title: 'I will seo backlinks high da authority link building service for google ranking',
-      category: 'Digital Marketing',
-      price: 150,
-      deliveryDays: 4,
-      rating: 5.0,
-      reviewsCount: 310,
-      image: 'https://images.unsplash.com/photo-1432888622747-4eb9a8efeb07?w=400&h=250&fit=crop',
-      featured: true
-    },
-    {
-      id: 'off_3',
-      title: 'Create an amazing promotional explainer video a puppet',
-      category: 'Video, Photo & Image',
-      price: 450,
-      deliveryDays: 5,
-      rating: 4.9,
-      reviewsCount: 124,
-      image: 'https://images.unsplash.com/photo-1536240478700-b869070f9279?w=400&h=250&fit=crop',
-      featured: true
-    }
-  ];
-
-  const offersToDisplay = userGigs.length > 0 ? userGigs : defaultSampleOffers;
+  const offersToDisplay = userGigs;
 
   const userSkills = profileUser.skills && profileUser.skills.length > 0 
     ? profileUser.skills 

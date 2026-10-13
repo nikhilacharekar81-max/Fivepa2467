@@ -11,3 +11,4 @@ export * from './WorkstreamReleaseModal';
 export * from './WorkstreamDeliverModal';
 export * from './WorkstreamRevisionModal';
 export * from './WorkstreamWorkspace';
+export * from './WorkstreamVideoCallModal';

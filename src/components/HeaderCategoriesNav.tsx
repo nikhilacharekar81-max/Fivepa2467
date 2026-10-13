@@ -148,6 +148,18 @@ interface HeaderCategoriesNavProps {
   currentCategory?: string;
 }
 
+const DISABLED_DROPDOWN_CATEGORIES = new Set([
+  'AI Services',
+  'Technology & Programming',
+  'Writing & Translation',
+  'Design',
+  'Digital Marketing',
+  'Video, Photo & Image',
+  'Business',
+  'Music & Audio',
+  'Marketing, Branding & Sales'
+]);
+
 export const HeaderCategoriesNav: React.FC<HeaderCategoriesNavProps> = ({
   navigate,
   currentCategory
@@ -172,7 +184,8 @@ export const HeaderCategoriesNav: React.FC<HeaderCategoriesNavProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between gap-1 overflow-x-auto lg:overflow-visible py-2 scrollbar-none">
           {PPH_CATEGORIES.map((cat, idx) => {
-            const isOpen = activeCategory === cat.slug;
+            const hasDropdown = !DISABLED_DROPDOWN_CATEGORIES.has(cat.name) && cat.subcategories.length > 0;
+            const isOpen = hasDropdown && activeCategory === cat.slug;
             const isCurrent = currentCategory?.toLowerCase() === cat.name.toLowerCase();
             const isRightAligned = idx >= PPH_CATEGORIES.length - 3;
 
@@ -180,8 +193,12 @@ export const HeaderCategoriesNav: React.FC<HeaderCategoriesNavProps> = ({
               <div
                 key={cat.slug}
                 className="relative shrink-0"
-                onMouseEnter={() => handleMouseEnter(cat.slug)}
-                onMouseLeave={handleMouseLeave}
+                onMouseEnter={() => {
+                  if (hasDropdown) handleMouseEnter(cat.slug);
+                }}
+                onMouseLeave={() => {
+                  if (hasDropdown) handleMouseLeave();
+                }}
               >
                 <button
                   type="button"
@@ -197,15 +214,15 @@ export const HeaderCategoriesNav: React.FC<HeaderCategoriesNavProps> = ({
                   }`}
                 >
                   <span>{cat.name}</span>
-                  {cat.subcategories.length > 0 && (
+                  {hasDropdown && (
                     <ChevronDown className={`w-3 h-3 text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-emerald-600 font-bold' : ''}`} />
                   )}
                 </button>
 
                 {/* Subcategories Flyout Auto Dropdown with Hover Bridge */}
-                {isOpen && cat.subcategories.length > 0 && (
+                {isOpen && hasDropdown && (
                   <div 
-                    className={`absolute top-full -mt-0.5 pt-2 w-72 z-[100] animate-in fade-in slide-in-from-top-1 duration-150 ${
+                    className={`absolute top-full -mt-0.5 pt-2 w-72 max-w-[calc(100vw-2rem)] z-[100] animate-in fade-in slide-in-from-top-1 duration-150 ${
                       isRightAligned ? 'right-0' : 'left-0'
                     }`}
                     onMouseEnter={() => handleMouseEnter(cat.slug)}

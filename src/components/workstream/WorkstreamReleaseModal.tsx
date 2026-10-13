@@ -6,7 +6,7 @@ interface WorkstreamReleaseModalProps {
   isOpen: boolean;
   order: WorkstreamItem;
   onClose: () => void;
-  onConfirm: (review: { rating: number; comment: string }) => void;
+  onConfirm: (review: { rating: number; comment: string; gigId?: string; projectId?: string }) => void;
 }
 
 export const WorkstreamReleaseModal: React.FC<WorkstreamReleaseModalProps> = ({
@@ -21,11 +21,14 @@ export const WorkstreamReleaseModal: React.FC<WorkstreamReleaseModalProps> = ({
 
   if (!isOpen) return null;
 
+  const isProject = !!order.projectId;
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onConfirm({
       rating,
-      comment: comment.trim() || 'Work accepted and completed.'
+      comment: comment.trim() || 'Work accepted and completed.',
+      gigId: order.gigId,
+      projectId: order.projectId
     });
     onClose();
   };
@@ -39,7 +42,9 @@ export const WorkstreamReleaseModal: React.FC<WorkstreamReleaseModalProps> = ({
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-fiverr-dark">Release Escrow Funds</h3>
+              <h3 className="text-base font-bold text-fiverr-dark">
+                {order.status === 'completed' ? `Review ${isProject ? 'Project' : 'Service'}` : 'Release Escrow Funds'}
+              </h3>
               <p className="text-[11px] text-slate-400">Order #{order.id}</p>
             </div>
           </div>

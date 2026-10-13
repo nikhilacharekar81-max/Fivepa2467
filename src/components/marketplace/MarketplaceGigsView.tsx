@@ -7,9 +7,15 @@ import {
   List, 
   Briefcase, 
   Star, 
-  Heart 
+  Heart,
+  Clock,
+  Send,
+  Flame,
+  Sparkles,
+  DollarSign
 } from 'lucide-react';
-import { Gig } from '../../types';
+import { Gig, Project } from '../../types';
+import { SEED_PROJECTS } from '../../data/completeSeedDataset';
 
 interface MarketplaceGigsViewProps {
   filteredGigs: Gig[];
@@ -355,8 +361,8 @@ export const MarketplaceGigsView: React.FC<MarketplaceGigsViewProps> = ({
 
                   {/* Price */}
                    <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-                    <span className="text-xs uppercase font-normal text-fiverr-muted">Starting at</span>
-                    <span className="text-xl font-bold text-fiverr-dark">${gig.price}</span>
+                    <span className="text-[11px] uppercase font-normal text-fiverr-muted">Starting at</span>
+                    <span className="text-[18px] font-bold text-fiverr-dark">${gig.price}</span>
                   </div>
                 </div>
               </div>
@@ -434,6 +440,145 @@ export const MarketplaceGigsView: React.FC<MarketplaceGigsViewProps> = ({
           ))}
         </div>
       )}
+
+      {/* Featured Projects & Client Requests Section */}
+      <div className="mt-16 pt-12 border-t border-slate-200/80">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-8">
+          <div>
+            <h2 className="text-2xl font-bold text-fiverr-dark tracking-tight">
+              Active Buyer Projects & Bidding Opportunities
+            </h2>
+            <p className="text-xs text-fiverr-muted mt-1 max-w-2xl">
+              Explore open client requests with funded escrow budgets. Submit proposals, bid on custom work, and collaborate securely.
+            </p>
+          </div>
+
+          <button
+            onClick={(e) => navigate('/projects', e)}
+            className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs rounded-xl transition-all shadow-xs shrink-0 cursor-pointer"
+          >
+            <span>View All Projects ({SEED_PROJECTS.length})</span>
+            <ChevronRight className="w-4 h-4 text-emerald-400" />
+          </button>
+        </div>
+
+        {/* Listicle View of Projects */}
+        <div className="space-y-4">
+          {SEED_PROJECTS.slice(0, 8).map((project) => {
+            const projectUrl = `/projects/${project.id}`;
+            return (
+              <div
+                key={project.id}
+                onClick={(e) => navigate(projectUrl, e)}
+                className="bg-white rounded-2xl border border-slate-200 p-5 hover:border-emerald-500/50 hover:shadow-lg transition-all flex flex-col md:flex-row items-start md:items-center justify-between gap-4 group cursor-pointer"
+              >
+                <div className="flex-1 min-w-0 space-y-2.5">
+                  {/* Header Row: Buyer Info, Category Badge & Urgency */}
+                  <div className="flex flex-wrap items-center gap-2.5 text-xs">
+                    <div className="flex items-center gap-2">
+                      <img 
+                        src={project.buyerAvatar} 
+                        alt={project.buyerName} 
+                        className="w-6 h-6 rounded-full object-cover shrink-0 ring-1 ring-slate-200" 
+                      />
+                      <span className="font-bold text-fiverr-dark text-xs">{project.buyerName}</span>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        {project.countryFlag} {project.location || 'Client'}
+                      </span>
+                    </div>
+
+                    <span className="text-slate-300">•</span>
+
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-700 uppercase tracking-wider">
+                      {project.category}
+                    </span>
+
+                    {project.isUrgent && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-orange-100 text-orange-800">
+                        <Flame className="w-3 h-3 text-orange-500" /> Urgent
+                      </span>
+                    )}
+
+                    {project.featured && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-100 text-amber-800">
+                        <Sparkles className="w-3 h-3 text-amber-500" /> Featured
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Title */}
+                  <h3 className="font-bold text-base text-fiverr-dark group-hover:text-emerald-600 transition-colors line-clamp-1 leading-snug">
+                    <a 
+                      href={projectUrl} 
+                      onClick={(e) => { e.stopPropagation(); navigate(projectUrl, e); }}
+                      className="hover:text-emerald-600 transition-colors"
+                    >
+                      {project.title}
+                    </a>
+                  </h3>
+
+                  {/* Description */}
+                  <p className="text-xs text-fiverr-muted line-clamp-2 leading-relaxed">
+                    {project.description}
+                  </p>
+
+                  {/* Skills Chips & Project Stats */}
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {project.skills && project.skills.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {project.skills.slice(0, 4).map((skill, idx) => (
+                          <span key={idx} className="text-[10px] font-medium bg-slate-50 text-slate-600 px-2 py-0.5 rounded-md border border-slate-200/60">
+                            {skill}
+                          </span>
+                        ))}
+                        {project.skills.length > 4 && (
+                          <span className="text-[10px] text-slate-400 font-medium">+{project.skills.length - 4} more</span>
+                        )}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-3 text-[11px] text-slate-400 font-medium ml-auto md:ml-0 pt-1 md:pt-0">
+                      <span className="flex items-center gap-1">
+                        <Send className="w-3 h-3 text-slate-400" />
+                        <strong className="text-slate-700 font-bold">{project.proposalsCount || 0}</strong> proposals
+                      </span>
+                      <span>•</span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-slate-400" />
+                        Est. {project.deadlineDays || 7} days
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Side: Budget & Submit Proposal Button */}
+                <div className="flex md:flex-col items-center md:items-end justify-between w-full md:w-auto pt-3 md:pt-0 border-t md:border-t-0 border-slate-100 gap-3 shrink-0">
+                  <div className="text-left md:text-right">
+                    <span className="text-[10px] text-fiverr-muted uppercase tracking-wider font-extrabold block">
+                      {project.projectType === 'hourly' ? 'Hourly Budget' : 'Fixed Budget'}
+                    </span>
+                    <span className="text-lg font-black text-emerald-600 font-mono">
+                      ${project.budgetMin} - ${project.budgetMax}
+                      {project.projectType === 'hourly' && <span className="text-xs font-normal text-slate-500">/hr</span>}
+                    </span>
+                  </div>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      navigate(projectUrl, e);
+                    }}
+                    className="px-4 py-2 bg-slate-900 hover:bg-emerald-600 text-white font-bold text-xs rounded-xl transition-all shadow-xs shrink-0 cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>Submit Proposal</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
     </div>
   );
 };

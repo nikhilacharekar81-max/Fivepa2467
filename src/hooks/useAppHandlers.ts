@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { 
   UserAccount, Gig, Project, Proposal, Order, Dispute, Refund, Payout, 
-  Category, SupportTicket, AuditLog, Message, Review, GigExtra 
+  Category, SupportTicket, AuditLog, Message, Review, GigExtra, AppNotification 
 } from '../types';
 import { WorkstreamFilter, WorkstreamItem, SharedFileItem } from '../components/workstream';
 import { initialUsers, initialGigs, initialProjects, initialOrders } from '../data/mockData';
@@ -15,7 +15,17 @@ export function useAppHandlers() {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => {
     try {
       const cached = localStorage.getItem('current_user') || localStorage.getItem('user');
-      if (cached) return JSON.parse(cached);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && (parsed.id === 'user_1' || parsed.id === 'user_2' || parsed.id === 'user_3' || parsed.id === 'user_4')) {
+          localStorage.removeItem('current_user');
+          localStorage.removeItem('user');
+          localStorage.removeItem('workperhour_token');
+          localStorage.removeItem('token');
+          return null;
+        }
+        return parsed;
+      }
     } catch (e) {}
     return null;
   });
@@ -83,6 +93,7 @@ export function useAppHandlers() {
   const [newGigDesc, setNewGigDesc] = useState('');
   const [newGigPrice, setNewGigPrice] = useState(450);
   const [newGigDays, setNewGigDays] = useState(5);
+  const [newGigImage, setNewGigImage] = useState('');
   const [isOptimizingGig, setIsOptimizingGig] = useState(false);
   const [newGigExtras, setNewGigExtras] = useState<GigExtra[]>([]);
   const [extraTitleInput, setExtraTitleInput] = useState('');
@@ -269,10 +280,40 @@ export function useAppHandlers() {
     setNewMessageText('');
   };
 
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  const triggerMissedCallNotification = (senderUsername: string, projectTitle: string, targetWorkstreamId: string) => {
+    const newNotification: AppNotification = {
+      id: `notif_${Date.now()}`,
+      userId: currentUser?.id || 'unknown',
+      type: 'missed_call',
+      title: 'Missed Call',
+      message: `Missed video call from ${senderUsername} regarding ${projectTitle}.`,
+      senderUsername,
+      projectTitle,
+      targetWorkstreamId,
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    setNotifications(prev => [newNotification, ...prev]);
+  };
+
+  const handleNotificationClick = (notification: AppNotification) => {
+    if (notification.type === 'missed_call' && notification.targetWorkstreamId) {
+      setNotifications(prev => prev.map(n => n.id === notification.id ? { ...n, read: true } : n));
+      const order = orders.find(o => o.id === notification.targetWorkstreamId);
+      if (order) {
+        setSelectedOrder(order);
+        navigate(`/messages/${order.id}`);
+      }
+    }
+  };
+
   return {
     path, setPath,
     impersonatedUser, setImpersonatedUser,
     currentUser, setCurrentUser, updateCurrentUser, toggleAvailableNow,
+    notifications, setNotifications, triggerMissedCallNotification, handleNotificationClick,
     usersList, setUsersList,
     gigs, setGigs,
     projects, setProjects,
@@ -301,6 +342,7 @@ export function useAppHandlers() {
     newGigDesc, setNewGigDesc,
     newGigPrice, setNewGigPrice,
     newGigDays, setNewGigDays,
+    newGigImage, setNewGigImage,
     isOptimizingGig, setIsOptimizingGig,
     newGigExtras, setNewGigExtras,
     extraTitleInput, setExtraTitleInput,

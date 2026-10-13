@@ -166,6 +166,7 @@ export interface UserAccount {
   subcategory?: string;
   languages?: string[];
   certifications?: string[];
+  knownDevices?: string[];
 }
 
 export type User = UserAccount;
@@ -294,3 +295,17 @@ export interface UserEmail {
   sentAt: string;
   read: boolean;
 }
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: 'general' | 'missed_call';
+  title: string;
+  message: string;
+  targetWorkstreamId?: string;
+  senderUsername?: string;
+  projectTitle?: string;
+  read: boolean;
+  createdAt: string;
+}
+

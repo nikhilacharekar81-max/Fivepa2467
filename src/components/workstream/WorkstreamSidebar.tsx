@@ -110,11 +110,11 @@ export const WorkstreamSidebar: React.FC<WorkstreamSidebarProps> = ({
           </div>
           <div className="space-y-1 max-h-48 overflow-y-auto text-xs">
             {projects.slice(0, 8).map(p => {
-              const isSelected = projectSearch === p.title;
+              const isSelected = projectSearch === p.id;
               return (
                 <div
                   key={p.id}
-                  onClick={() => onProjectSelect(isSelected ? '' : p.title)}
+                  onClick={() => onProjectSelect(isSelected ? '' : p.id)}
                   className={`px-2.5 py-1.5 rounded-lg hover:bg-slate-50 text-fiverr-dark truncate cursor-pointer font-medium border transition-colors ${
                     isSelected 
                       ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-bold' 

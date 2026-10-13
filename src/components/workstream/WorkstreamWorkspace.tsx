@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { 
   ChevronLeft, ShieldCheck, Clock, CheckCircle2, AlertCircle, 
-  RotateCcw, Activity, FolderOpen, Send, Sparkles, MessageSquare 
+  RotateCcw, Activity, FolderOpen, Send, Sparkles, MessageSquare, Video 
 } from 'lucide-react';
 import { WorkstreamItem, WorkstreamMessage, SharedFileItem, WorkstreamSubTab } from './types';
 import { UserAccount } from '../../types';
@@ -13,6 +13,7 @@ import { WorkstreamActionsPanel } from './WorkstreamActionsPanel';
 import { WorkstreamReleaseModal } from './WorkstreamReleaseModal';
 import { WorkstreamDeliverModal } from './WorkstreamDeliverModal';
 import { WorkstreamRevisionModal } from './WorkstreamRevisionModal';
+import { WorkstreamVideoCallModal } from './WorkstreamVideoCallModal';
 
 interface WorkstreamWorkspaceProps {
   order: WorkstreamItem;
@@ -28,6 +29,8 @@ interface WorkstreamWorkspaceProps {
   onDeliverWork: (delivery: { notes: string; files: Array<{ name: string; size: string; url: string }> }) => void;
   onRequestRevision: (reason: string) => void;
   onViewPartnerProfile?: (user: UserAccount) => void;
+  onLogRequirement?: (requirementText: string) => void;
+  onMissedCall?: () => void;
   onDisputeAssistance?: () => void;
 }
 
@@ -45,12 +48,15 @@ export const WorkstreamWorkspace: React.FC<WorkstreamWorkspaceProps> = ({
   onDeliverWork,
   onRequestRevision,
   onViewPartnerProfile,
-  onDisputeAssistance
+  onDisputeAssistance,
+  onLogRequirement = () => {},
+  onMissedCall = () => {}
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<WorkstreamSubTab>('activity');
   const [isReleaseModalOpen, setIsReleaseModalOpen] = useState(false);
   const [isDeliverModalOpen, setIsDeliverModalOpen] = useState(false);
   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState(false);
+  const [isVideoCallModalOpen, setIsVideoCallModalOpen] = useState(false);
 
   const getStatusBadge = () => {
     switch (order.status) {
@@ -217,6 +223,7 @@ export const WorkstreamWorkspace: React.FC<WorkstreamWorkspaceProps> = ({
             onOpenReleaseModal={() => setIsReleaseModalOpen(true)}
             onOpenDeliverModal={() => setIsDeliverModalOpen(true)}
             onOpenRevisionModal={() => setIsRevisionModalOpen(true)}
+            onStartVideoCall={() => setIsVideoCallModalOpen(true)}
             onAttachFiles={() => setActiveSubTab('files')}
             onDisputeAssistance={onDisputeAssistance}
           />
@@ -224,12 +231,23 @@ export const WorkstreamWorkspace: React.FC<WorkstreamWorkspaceProps> = ({
       </div>
 
       {/* MODALS */}
+      <WorkstreamVideoCallModal
+        isOpen={isVideoCallModalOpen}
+        order={order}
+        currentUser={currentUser}
+        partner={partner}
+        onClose={() => setIsVideoCallModalOpen(false)}
+        onLogRequirement={onLogRequirement}
+        onMissedCall={onMissedCall}
+      />
+
       <WorkstreamReleaseModal
         isOpen={isReleaseModalOpen}
         order={order}
         onClose={() => setIsReleaseModalOpen(false)}
         onConfirm={onReleaseEscrow}
       />
+
 
       <WorkstreamDeliverModal
         isOpen={isDeliverModalOpen}
