@@ -27,6 +27,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { Project, User as UserType, Proposal } from '../../types';
+import { calculateOrderFees } from '../../shared/fees';
 
 interface ProjectDetailViewProps {
   project: Project;
@@ -97,10 +98,11 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
   const [newQuestion, setNewQuestion] = useState<string>('');
   const [isSubmittingQuestion, setIsSubmittingQuestion] = useState<boolean>(false);
 
-  // Fee calculation (10% platform fee)
+  // Fee preview: same shared math the ledger uses (20% platform commission, freelancer keeps 80%)
   const numericBid = typeof proposalBid === 'number' ? proposalBid : parseFloat(proposalBid) || 0;
-  const serviceFee = Math.round(numericBid * 0.10);
-  const netEarnings = Math.max(0, numericBid - serviceFee);
+  const bidFees = calculateOrderFees(Math.max(0, numericBid));
+  const serviceFee = bidFees.platformCommission;
+  const netEarnings = bidFees.freelancerNet;
   const depositAmount = Math.round((numericBid * proposalDeposit) / 100);
 
   // Auto-generate AI Cover Letter
@@ -632,7 +634,7 @@ export const ProjectDetailView: React.FC<ProjectDetailViewProps> = ({
                       <span className="font-semibold text-slate-900">${numericBid.toLocaleString()}</span>
                     </div>
                     <div className="flex justify-between text-slate-600">
-                      <span>Platform Service Fee (10%):</span>
+                      <span>Platform Commission ({100 - bidFees.freelancerPercent}%):</span>
                       <span className="text-rose-600">-${serviceFee.toLocaleString()}</span>
                     </div>
                     <div className="pt-2 border-t border-slate-200 flex justify-between font-extrabold text-sm text-slate-900">

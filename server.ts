@@ -59,6 +59,10 @@ function areSimulatedDepositsAllowed(): boolean {
 // Feed business rules from the site settings into the ledger engine
 financeLedger.configure({
   commissionPercent: DEFAULT_SITE_SETTINGS.commission.commissionPercent,
+  buyerFeePercent: DEFAULT_SITE_SETTINGS.commission.buyerProcessingFeePercent,
+  smallOrderFee: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeAmount,
+  smallOrderThreshold: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeThreshold,
+  refundClientFeesOnFullRefund: DEFAULT_SITE_SETTINGS.commission.refundClientFeesOnFullRefund,
   minimumOrderAmount: DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount,
   minimumWithdrawalAmount: DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount,
   maximumWithdrawalAmount: DEFAULT_SITE_SETTINGS.wallets.maximumWithdrawalPerTransaction
@@ -1361,7 +1365,8 @@ interface SiteFeeSettings {
   currencySymbol: string;
   freelancerCommissionRate: number;
   buyerProcessingFeeRate: number;
-  buyerProcessingFeeFixed: number;
+  smallOrderFee: number;
+  smallOrderFeeThreshold: number;
   minOrderAmount: number;
   featuredGigFee: number;
   urgentProjectFee: number;
@@ -1383,8 +1388,9 @@ let siteFeeSettings: SiteFeeSettings = {
   currency: 'USD',
   currencySymbol: '$',
   freelancerCommissionRate: 20,
-  buyerProcessingFeeRate: 3,
-  buyerProcessingFeeFixed: 0,
+  buyerProcessingFeeRate: DEFAULT_SITE_SETTINGS.commission.buyerProcessingFeePercent, // 5.5% client service fee
+  smallOrderFee: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeAmount, // $3.50 flat
+  smallOrderFeeThreshold: DEFAULT_SITE_SETTINGS.commission.smallOrderFeeThreshold, // orders under $200
   minOrderAmount: 10,
   featuredGigFee: 10,
   urgentProjectFee: 25,
@@ -1402,11 +1408,17 @@ let siteFeeSettings: SiteFeeSettings = {
 
 // REST API Endpoints - Site & Fee Settings
 const handleGetSiteSettings = (req: Request, res: Response) => {
-  res.json({
-    success: true,
-    settings: siteFeeSettings,
-    ...siteFeeSettings
-  });
+  const cfg = financeLedger.getFeeConfig(); // the ledger is the source of truth for what is actually charged
+  const view = {
+    ...siteFeeSettings,
+    freelancerCommissionRate: cfg.commissionPercent,
+    buyerProcessingFeeRate: cfg.buyerFeePercent,
+    clientServiceFee: cfg.buyerFeePercent, // alias used by the admin UI
+    smallOrderFee: cfg.smallOrderFee,
+    smallOrderFeeAmount: cfg.smallOrderFee, // alias used by the admin UI
+    smallOrderFeeThreshold: cfg.smallOrderThreshold
+  };
+  res.json({ success: true, settings: view, ...view });
 };
 
 const handlePostSiteSettings = (req: Request, res: Response) => {
@@ -1420,12 +1432,25 @@ const handlePostSiteSettings = (req: Request, res: Response) => {
       }
       body.freelancerCommissionRate = num;
     }
+    // The admin UI sends clientServiceFee / smallOrderFeeAmount; map them onto the canonical names.
+    if (body.clientServiceFee !== undefined && body.buyerProcessingFeeRate === undefined) body.buyerProcessingFeeRate = body.clientServiceFee;
+    if (body.smallOrderFeeAmount !== undefined && body.smallOrderFee === undefined) body.smallOrderFee = body.smallOrderFeeAmount;
+    delete body.clientServiceFee;
+    delete body.smallOrderFeeAmount;
     if (body.buyerProcessingFeeRate !== undefined) {
       const num = Number(body.buyerProcessingFeeRate);
-      if (isNaN(num) || num < 0 || num > 100) {
-        return res.status(400).json({ error: 'Buyer processing fee rate must be between 0 and 100%' });
-      }
+      if (!Number.isFinite(num) || num < 0 || num > 100) return res.status(400).json({ error: 'Client service fee must be between 0 and 100%' });
       body.buyerProcessingFeeRate = num;
+    }
+    if (body.smallOrderFee !== undefined) {
+      const num = Number(body.smallOrderFee);
+      if (!Number.isFinite(num) || num < 0) return res.status(400).json({ error: 'Small-order fee must be zero or more' });
+      body.smallOrderFee = num;
+    }
+    if (body.smallOrderFeeThreshold !== undefined) {
+      const num = Number(body.smallOrderFeeThreshold);
+      if (!Number.isFinite(num) || num < 0) return res.status(400).json({ error: 'Small-order threshold must be zero or more' });
+      body.smallOrderFeeThreshold = num;
     }
     if (body.minOrderAmount !== undefined) {
       const num = Number(body.minOrderAmount);
@@ -1463,8 +1488,14 @@ const handlePostSiteSettings = (req: Request, res: Response) => {
       DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount = siteFeeSettings.minOrderAmount || DEFAULT_SITE_SETTINGS.commission.minimumOrderAmount;
       DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount = siteFeeSettings.minPayoutThreshold || DEFAULT_SITE_SETTINGS.wallets.minimumWithdrawalAmount;
 
+      DEFAULT_SITE_SETTINGS.commission.buyerProcessingFeePercent = siteFeeSettings.buyerProcessingFeeRate;
+      DEFAULT_SITE_SETTINGS.commission.smallOrderFeeAmount = siteFeeSettings.smallOrderFee;
+      DEFAULT_SITE_SETTINGS.commission.smallOrderFeeThreshold = siteFeeSettings.smallOrderFeeThreshold;
       financeLedger.configure({
         commissionPercent: siteFeeSettings.freelancerCommissionRate,
+        buyerFeePercent: siteFeeSettings.buyerProcessingFeeRate,
+        smallOrderFee: siteFeeSettings.smallOrderFee,
+        smallOrderThreshold: siteFeeSettings.smallOrderFeeThreshold,
         minimumOrderAmount: siteFeeSettings.minOrderAmount || 5,
         minimumWithdrawalAmount: siteFeeSettings.minPayoutThreshold || 5
       });
@@ -1476,7 +1507,7 @@ const handlePostSiteSettings = (req: Request, res: Response) => {
       role: 'super_admin',
       action: 'SITE_FEE_SETTINGS_UPDATED',
       target: 'Platform Settings & Fee Structure',
-      details: `Updated settings: Commission=${siteFeeSettings.freelancerCommissionRate}%, EscrowHold=${siteFeeSettings.escrowHoldDays}d, BuyerFee=${siteFeeSettings.buyerProcessingFeeRate}%`,
+      details: `Updated settings: Commission=${siteFeeSettings.freelancerCommissionRate}%, EscrowHold=${siteFeeSettings.escrowHoldDays}d, ClientFee=${siteFeeSettings.buyerProcessingFeeRate}%, SmallOrderFee=$${siteFeeSettings.smallOrderFee} under $${siteFeeSettings.smallOrderFeeThreshold}`,
       timestamp: new Date().toLocaleString()
     });
 
@@ -2194,8 +2225,8 @@ app.get('/api/payments/user/:userId', requireAuth, (req, res) => {
     const paidThisMonth = userPaidOrders.filter(o => (o.createdAt || '').startsWith('2026-10')).reduce((sum, o) => sum + (o.amount || 0), 0);
 
     const userEarnedOrders = orders.filter(o => o.sellerId === userId && o.status === 'completed');
-    const earnedToDate = u?.earned ?? userEarnedOrders.reduce((sum, o) => sum + (o.amount * 0.9), 0);
-    const earnedThisMonth = userEarnedOrders.filter(o => (o.createdAt || '').startsWith('2026-10')).reduce((sum, o) => sum + (o.amount * 0.9), 0);
+    const earnedToDate = u?.earned ?? userEarnedOrders.reduce((sum, o) => sum + financeLedger.quoteOrder(o.amount).freelancerNet, 0);
+    const earnedThisMonth = userEarnedOrders.filter(o => (o.createdAt || '').startsWith('2026-10')).reduce((sum, o) => sum + financeLedger.quoteOrder(o.amount).freelancerNet, 0);
 
     const userMethods = savedPaymentMethods.filter(m => m.userId === userId);
 
@@ -2589,14 +2620,14 @@ app.get('/api/payments/transactions/:userId', requireAuth, (req, res) => {
           syn.push({
             id: `txn_rel_${ord.id}`,
             type: 'escrow_release',
-            amount: Number((ord.amount * 0.9).toFixed(2)),
+            amount: financeLedger.quoteOrder(ord.amount).freelancerNet,
             currency: 'USD',
             timestamp: `${ord.dueDate} 15:30:00`,
             status: 'completed',
             userId: userId,
             userName: ord.sellerUsername || 'Freelancer',
             userRole: 'freelancer',
-            description: `Escrow earnings (90% net) from: ${ord.title}`,
+            description: `Escrow earnings (${financeLedger.quoteOrder(ord.amount).freelancerPercent}% net) from: ${ord.title}`,
             relatedOrderId: ord.id
           });
         }
@@ -2642,9 +2673,11 @@ app.get('/api/payments/invoices/:userId', requireAuth, (req, res) => {
           { description: o.title, quantity: 1, unitPrice: o.amount, amount: o.amount }
         ],
         subtotal: o.amount,
-        platformFee: Number((o.amount * 0.10).toFixed(2)),
+        serviceFee: financeLedger.quoteOrder(o.amount).serviceFee,
+        smallOrderFee: financeLedger.quoteOrder(o.amount).smallOrderFee,
+        platformFee: financeLedger.quoteOrder(o.amount).platformCommission,
         tax: 0,
-        total: o.amount,
+        total: financeLedger.quoteOrder(o.amount).clientTotal,
         notes: `WorkPerHour 14-Day Escrow Protection Order #${o.id}. 100% Protected.`,
         relatedOrderId: o.id
       };
@@ -3911,8 +3944,15 @@ app.post('/api/orders', requireAuth, rateLimit(30, 60_000), (req, res) => {
 
     const id = 'ord_' + randomUUID().slice(0, 12);
     const today = new Date().toISOString().split('T')[0];
-    const rawAmount = Number(req.body?.amount);
+    let rawAmount = Number(req.body?.amount);
     const isInquiry = rawAmount === 0 && /^inquiry:/i.test(title);
+    // Gig orders are priced from the server-side gig + selected add-ons. The browser-sent `amount` is never trusted,
+    // otherwise a client could pay any price and every fee (20% / 5.5% / $3.50) would be computed on the fake number.
+    if (!isInquiry && req.body?.gigId) {
+      const priced = resolveGigOrderPrice(String(req.body.gigId), req.body?.extraIds);
+      if (priced.gig.freelancerId !== sellerId) return res.status(400).json({ error: 'This gig does not belong to the selected seller.' });
+      rawAmount = priced.gigPrice;
+    }
 
     let newOrd: Order;
     if (isInquiry) {
@@ -3934,7 +3974,7 @@ app.post('/api/orders', requireAuth, rateLimit(30, 60_000), (req, res) => {
     orders.unshift(enriched);
     res.status(201).json(enriched);
   } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
   }
 });
 

@@ -235,9 +235,9 @@ export class SiteSettingsService {
       section: 'Platform Commission',
       settingName: 'Platform Commission (%)',
       oldValue: 'Initial Configuration',
-      newValue: '10%',
+      newValue: `${DEFAULT_FEE_CONFIG.commissionPercent}%`,
       actor: 'System Setup',
-      notes: 'Standard 10% platform take rate initialized with 14-day escrow protection.'
+      notes: `Standard ${DEFAULT_FEE_CONFIG.commissionPercent}% platform take rate initialized with 14-day escrow protection.`
     });
     this.history.push({
       id: 'SET-HIST-102',
