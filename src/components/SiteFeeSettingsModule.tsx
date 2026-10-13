@@ -48,14 +48,18 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
 
   const [isSaving, setIsSaving] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
+    setSavedSuccess(false);
+    setSaveError(null);
+    
     localStorage.setItem('workperhour_platform_fee', takeRate.toString());
 
     try {
-      await fetch('/api/admin/settings', {
+      const response = await fetch('/api/admin/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -78,16 +82,37 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
         })
       });
 
+      if (!response.ok) {
+        let errorMessage = `Server responded with ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch (jsonErr) {
+          // Fallback if response is not JSON
+        }
+        throw new Error(errorMessage);
+      }
+
+      // If we got here, the PATCH was successful.
+      // Now update the parent state if needed.
+      if (onSettingsSaved) {
+        try {
+          await Promise.resolve(onSettingsSaved({ takeRate, clientServiceFee, escrowHoldDays }));
+        } catch (cbErr) {
+          console.warn('Settings saved successfully but background data refresh encountered an issue:', cbErr);
+          // We don't throw here because the settings themselves ARE saved.
+        }
+      }
+
       setIsSaving(false);
       setSavedSuccess(true);
-      if (onSettingsSaved) onSettingsSaved({ takeRate, clientServiceFee, escrowHoldDays });
       setTimeout(() => setSavedSuccess(false), 3500);
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Save settings error:', err);
       setIsSaving(false);
-      setSavedSuccess(true);
-      if (onSettingsSaved) onSettingsSaved();
-      setTimeout(() => setSavedSuccess(false), 3500);
+      setSavedSuccess(false);
+      setSaveError(err.message || 'Failed to save settings. Please try again.');
+      setTimeout(() => setSaveError(null), 5000);
     }
   };
 
@@ -563,9 +588,16 @@ export const SiteFeeSettingsModule: React.FC<SiteFeeSettingsModuleProps> = ({
       </div>
 
       {savedSuccess && (
-        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-semibold flex items-center gap-2">
+        <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-emerald-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
           <span>Platform settings successfully saved and live across all marketplace instances!</span>
+        </div>
+      )}
+
+      {saveError && (
+        <div className="p-4 bg-red-50 border border-red-200 rounded-2xl text-red-800 text-xs font-semibold flex items-center gap-2 animate-in fade-in slide-in-from-bottom-2">
+          <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />
+          <span>Error: {saveError}</span>
         </div>
       )}
     </div>

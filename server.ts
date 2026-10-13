@@ -11,6 +11,7 @@ import bcrypt from 'bcryptjs';
 import type { Request, Response, NextFunction } from 'express';
 import { financeLedger, FinanceLedgerEngine } from './src/server/financeLedger.js';
 import { DEFAULT_SITE_SETTINGS } from './src/server/siteSettings.js';
+import { OrderFeeBreakdown } from './src/shared/fees.js';
 import {
   SEED_USERS,
   SEED_GIGS,
@@ -874,6 +875,7 @@ interface Order {
   serviceTitle?: string;
   serviceThumbnail?: string;
   isTimerPaused?: boolean;
+  feeBreakdown?: OrderFeeBreakdown;
 }
 
 interface Dispute {
@@ -2673,11 +2675,11 @@ app.get('/api/payments/invoices/:userId', requireAuth, (req, res) => {
           { description: o.title, quantity: 1, unitPrice: o.amount, amount: o.amount }
         ],
         subtotal: o.amount,
-        serviceFee: financeLedger.quoteOrder(o.amount).serviceFee,
-        smallOrderFee: financeLedger.quoteOrder(o.amount).smallOrderFee,
-        platformFee: financeLedger.quoteOrder(o.amount).platformCommission,
+        serviceFee: o.feeBreakdown?.serviceFee ?? financeLedger.quoteOrder(o.amount).serviceFee,
+        smallOrderFee: o.feeBreakdown?.smallOrderFee ?? financeLedger.quoteOrder(o.amount).smallOrderFee,
+        platformFee: o.feeBreakdown?.platformCommission ?? financeLedger.quoteOrder(o.amount).platformCommission,
         tax: 0,
-        total: financeLedger.quoteOrder(o.amount).clientTotal,
+        total: o.feeBreakdown?.clientTotal ?? financeLedger.quoteOrder(o.amount).clientTotal,
         notes: `WorkPerHour 14-Day Escrow Protection Order #${o.id}. 100% Protected.`,
         relatedOrderId: o.id
       };
@@ -3573,11 +3575,13 @@ app.post('/api/messages', (req, res) => {
       status: 'in_progress',
       createdAt: new Date().toISOString().split('T')[0],
       dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-      requirements: 'Agreed scope via workstream.'
+      requirements: 'Agreed scope via workstream.',
+      feeBreakdown: financeLedger.quoteOrder(Number(req.body.amount) || 100)
     };
     orders.push(order);
     saveOrdersToDisk();
   }
+  if (!order) return res.status(404).json({ error: 'Order not found' });
 
   const newMsg: Message = {
     id: 'msg_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
@@ -3966,7 +3970,8 @@ app.post('/api/orders', requireAuth, rateLimit(30, 60_000), (req, res) => {
         dueDate: req.body.dueDate || new Date(Date.now() + 10 * 86400000).toISOString().split('T')[0],
         escrowProtectionStartDate: today,
         escrowProtectionEndDate: new Date(Date.now() + DEFAULT_SITE_SETTINGS.commission.escrowProtectionDays * 86400000).toISOString().split('T')[0],
-        gigId: req.body.gigId, projectId: req.body.projectId
+        gigId: req.body.gigId, projectId: req.body.projectId,
+        feeBreakdown: financeLedger.quoteOrder(rawAmount)
       };
       syncUserBalances();
     }
@@ -4413,11 +4418,13 @@ function setupWebSocketHandlers(ws: WebSocket) {
             status: 'in_progress',
             createdAt: new Date().toISOString().split('T')[0],
             dueDate: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-            requirements: parsed.requirements || 'Agreed scope via workstream.'
+            requirements: parsed.requirements || 'Agreed scope via workstream.',
+            feeBreakdown: financeLedger.quoteOrder(Number(parsed.amount) || 100)
           };
           orders.push(order);
           saveOrdersToDisk();
         }
+        if (!order) return;
 
         const text = parsed.text || '';
         const msgType = parsed.msgType || 'message';

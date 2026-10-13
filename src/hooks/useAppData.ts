@@ -114,9 +114,12 @@ export const useAppData = () => {
       if (supportTicketsData.length > 0) setSupportTickets(supportTicketsData);
       if (auditLogsData.length > 0) setAuditLogs(auditLogsData);
       
-      if (settingsData && settingsData.freelancerCommissionRate !== undefined) {
-        setPlatformFee(settingsData.freelancerCommissionRate);
-        if (settingsData.escrowHoldDays) setEscrowProtectionDays(settingsData.escrowHoldDays);
+      if (settingsData) {
+        if (settingsData.freelancerCommissionRate !== undefined) setPlatformFee(settingsData.freelancerCommissionRate);
+        if (settingsData.clientServiceFee !== undefined) setClientServiceFee(settingsData.clientServiceFee);
+        if (settingsData.smallOrderFeeThreshold !== undefined) setSmallOrderFeeThreshold(settingsData.smallOrderFeeThreshold);
+        if (settingsData.smallOrderFeeAmount !== undefined) setSmallOrderFeeAmount(settingsData.smallOrderFeeAmount);
+        if (settingsData.escrowHoldDays !== undefined) setEscrowProtectionDays(settingsData.escrowHoldDays);
       }
     } catch (e) {
       setError('Failed to fetch data');

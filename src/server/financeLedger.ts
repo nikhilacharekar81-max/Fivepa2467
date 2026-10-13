@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { DEFAULT_FEE_CONFIG, calculateOrderFees, percentOfCents, validateFeeConfig, type FeeConfig } from '../shared/fees.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const DATA_DIR = path.join(__dirname, '../../data');
+const LEDGER_FILE = path.join(DATA_DIR, 'financial_ledger.json');
+
 
 // Authoritative Double-Entry Ledger & Financial Engine for WorkPerHour
 
@@ -215,6 +223,7 @@ export class FinanceLedgerEngine {
 
   constructor() {
     this.seedInitialFinancialData();
+    this.loadFromDisk();
   }
 
   // ----- configuration -----------------------------------------------------
@@ -234,6 +243,7 @@ export class FinanceLedgerEngine {
     if (typeof cfg.minimumOrderAmount === 'number' && cfg.minimumOrderAmount >= 0) this.minimumOrderAmount = cfg.minimumOrderAmount;
     if (typeof cfg.minimumWithdrawalAmount === 'number' && cfg.minimumWithdrawalAmount >= 0) this.minimumWithdrawalAmount = cfg.minimumWithdrawalAmount;
     if (typeof cfg.maximumWithdrawalAmount === 'number' && cfg.maximumWithdrawalAmount > 0) this.maximumWithdrawalAmount = cfg.maximumWithdrawalAmount;
+    this.saveToDisk();
   }
 
   /** The fee rules the ledger is currently enforcing. */
@@ -254,6 +264,7 @@ export class FinanceLedgerEngine {
   public setPlatformCommissionRate(rate: number) {
     if (typeof rate === 'number' && Number.isFinite(rate) && rate >= 0 && rate <= 100) {
       this.platformCommissionRate = rate;
+      this.saveToDisk();
     }
   }
 
@@ -452,6 +463,7 @@ export class FinanceLedgerEngine {
       description: params.description
     });
 
+    this.saveToDisk();
     return journal;
   }
 
@@ -539,6 +551,7 @@ export class FinanceLedgerEngine {
       lastActivityAt: now,
       createdAt: now
     });
+    this.saveToDisk();
   }
 
   public hasWallet(userId: string): boolean {
@@ -582,6 +595,7 @@ export class FinanceLedgerEngine {
     wallet.status = 'frozen';
     wallet.restrictionReason = why;
     this.audit({ actor, action: 'WALLET_FROZEN', target: `Wallet #${wallet.id} (${wallet.userName})`, reason: why });
+    this.saveToDisk();
     return wallet;
   }
 
@@ -590,6 +604,7 @@ export class FinanceLedgerEngine {
     wallet.status = 'active';
     wallet.restrictionReason = undefined;
     this.audit({ actor, action: 'WALLET_UNFROZEN', target: `Wallet #${wallet.id} (${wallet.userName})`, reason: reason || 'Administrative review completed' });
+    this.saveToDisk();
     return wallet;
   }
 
@@ -599,6 +614,7 @@ export class FinanceLedgerEngine {
     wallet.status = 'restricted';
     wallet.restrictionReason = why;
     this.audit({ actor, action: 'WALLET_WITHDRAWALS_RESTRICTED', target: `Wallet #${wallet.id} (${wallet.userName})`, reason: why });
+    this.saveToDisk();
     return wallet;
   }
 
@@ -1129,6 +1145,75 @@ export class FinanceLedgerEngine {
       }
       default:
         throw new Error(`Unsupported export type: ${reportType}`);
+    }
+  }
+
+  // ----- persistence ------------------------------------------------------
+  private saveToDisk() {
+    if (process.env.NODE_ENV === 'test') return;
+    try {
+      if (!fs.existsSync(DATA_DIR)) {
+        fs.mkdirSync(DATA_DIR, { recursive: true });
+      }
+
+      const data = {
+        journals: this.journals,
+        transactions: this.transactions,
+        wallets: Array.from(this.wallets.entries()),
+        auditLogs: this.auditLogs,
+        exceptions: this.exceptions,
+        idempotencyKeys: Array.from(this.idempotencyKeys),
+        escrows: Array.from(this.escrows.entries()),
+        payouts: Array.from(this.payouts.entries()),
+        opResults: Array.from(this.opResults.entries()),
+        config: {
+          platformCommissionRate: this.platformCommissionRate,
+          buyerFeePercent: this.buyerFeePercent,
+          smallOrderFee: this.smallOrderFee,
+          smallOrderThreshold: this.smallOrderThreshold,
+          refundClientFeesOnFullRefund: this.refundClientFeesOnFullRefund,
+          minimumOrderAmount: this.minimumOrderAmount,
+          minimumWithdrawalAmount: this.minimumWithdrawalAmount,
+          maximumWithdrawalAmount: this.maximumWithdrawalAmount
+        }
+      };
+
+      fs.writeFileSync(LEDGER_FILE, JSON.stringify(data, null, 2), 'utf-8');
+    } catch (err) {
+      console.error('Failed to save financial ledger to disk:', err);
+    }
+  }
+
+  public loadFromDisk() {
+    if (process.env.NODE_ENV === 'test') return;
+    try {
+      if (!fs.existsSync(LEDGER_FILE)) return;
+
+      const raw = fs.readFileSync(LEDGER_FILE, 'utf-8');
+      const data = JSON.parse(raw);
+
+      if (data.journals) this.journals = data.journals;
+      if (data.transactions) this.transactions = data.transactions;
+      if (data.wallets) this.wallets = new Map(data.wallets);
+      if (data.auditLogs) this.auditLogs = data.auditLogs;
+      if (data.exceptions) this.exceptions = data.exceptions;
+      if (data.idempotencyKeys) this.idempotencyKeys = new Set(data.idempotencyKeys);
+      if (data.escrows) this.escrows = new Map(data.escrows);
+      if (data.payouts) this.payouts = new Map(data.payouts);
+      if (data.opResults) this.opResults = new Map(data.opResults);
+
+      if (data.config) {
+        this.platformCommissionRate = data.config.platformCommissionRate ?? this.platformCommissionRate;
+        this.buyerFeePercent = data.config.buyerFeePercent ?? this.buyerFeePercent;
+        this.smallOrderFee = data.config.smallOrderFee ?? this.smallOrderFee;
+        this.smallOrderThreshold = data.config.smallOrderThreshold ?? this.smallOrderThreshold;
+        this.refundClientFeesOnFullRefund = data.config.refundClientFeesOnFullRefund ?? this.refundClientFeesOnFullRefund;
+        this.minimumOrderAmount = data.config.minimumOrderAmount ?? this.minimumOrderAmount;
+        this.minimumWithdrawalAmount = data.config.minimumWithdrawalAmount ?? this.minimumWithdrawalAmount;
+        this.maximumWithdrawalAmount = data.config.maximumWithdrawalAmount ?? this.maximumWithdrawalAmount;
+      }
+    } catch (err) {
+      console.error('Failed to load financial ledger from disk:', err);
     }
   }
 }

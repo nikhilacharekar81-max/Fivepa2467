@@ -1,3 +1,5 @@
+import { OrderFeeBreakdown } from './shared/fees';
+
 export interface GigExtra {
   id: string;
   title: string;
@@ -131,6 +133,7 @@ export interface Order {
   serviceTitle?: string;
   serviceThumbnail?: string;
   isTimerPaused?: boolean;
+  feeBreakdown?: OrderFeeBreakdown;
 }
 
 export interface UserAccount {
