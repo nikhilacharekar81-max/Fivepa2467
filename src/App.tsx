@@ -16,6 +16,9 @@ import { ViewingGigModal, EditGigModal, DeleteGigModal, CreateGigView, RelatedGi
 import { FreelancerSearchView, ProjectSearchView, ProjectDetailView } from './components/marketplace';
 import { AdminPage } from './pages/AdminPage';
 import { Reviews } from './components/gig_reviews';
+import { useAppData } from './hooks/useAppData';
+
+import { UserSwitchModal } from './components/UserSwitchModal';
 import * as DatabaseService from './services/DatabaseService';
 import { initialUsers, initialGigs, initialProjects, initialOrders } from './data/mockData';
 import {
@@ -31,7 +34,6 @@ import {
   WishlistModal, 
   EmailNotificationsModal, 
   SupportModal, 
-  UserSwitchModal,
   LoginModal,
   SignupModal,
   VerifyModal,
@@ -4617,17 +4619,13 @@ export default function App() {
         }} 
       />
 
-      <UserSwitchModal 
-        isOpen={isUserSwitchModalOpen} 
-        onClose={() => setIsUserSwitchModalOpen(false)} 
-        usersList={usersList} 
-        currentUser={currentUser} 
-        impersonatedUser={impersonatedUser} 
-        onSelectUser={(u) => {
-          setImpersonatedUser(u);
-          updateCurrentUser(u);
-          setIsUserSwitchModalOpen(false);
-        }} 
+      <UserSwitchModal
+        isOpen={isUserSwitchModalOpen}
+        onClose={() => setIsUserSwitchModalOpen(false)}
+        usersList={usersList}
+        currentUser={currentUser || usersList[0]}
+        setCurrentUser={updateCurrentUser}
+        setImpersonatedUser={setImpersonatedUser}
       />
 
       {/* PROFILE PAGE VIEW (Matches PeoplePerHour design from screenshot exactly) */}

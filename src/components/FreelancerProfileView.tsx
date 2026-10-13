@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   ShieldCheck, CheckCircle2, Star, MapPin, Clock, MessageSquare, 
   Briefcase, Check, ExternalLink, ChevronRight, Award, User, 
   Sparkles, Globe, Filter, Eye, Tag, Pencil, Settings
 } from 'lucide-react';
 import { UserAccount, Gig, Review } from '../types';
-import { UserReviewsModule } from './reviews';
+import { Reviews } from './gig_reviews';
 
 interface FreelancerProfileViewProps {
   profileUser: UserAccount;
@@ -45,6 +45,22 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const mappedReviews = useMemo(() => {
+    return reviews
+      .filter(r => r.targetUserId === profileUser.id)
+      .map(r => ({
+        id: r.id,
+        orderId: r.orderId,
+        reviewerName: r.reviewerName ?? r.buyerName ?? 'Anonymous',
+        reviewerAvatar: r.reviewerAvatar ?? r.avatar,
+        targetUserId: r.targetUserId ?? profileUser.id,
+        rating: r.rating ?? 0,
+        comment: r.comment ?? r.review ?? '',
+        orderTitle: r.orderTitle ?? r.gigTitle ?? '',
+        createdAt: r.createdAt ?? r.timeAgo ?? ''
+      }));
+  }, [reviews, profileUser.id]);
 
   // Filter Gigs for this Freelancer (or fallback to high-quality SEO/Development sample offers matching the screenshot)
   const userGigs = gigs.filter(g => 
@@ -441,22 +457,7 @@ export const FreelancerProfileView: React.FC<FreelancerProfileViewProps> = ({
                   {/* Reviews List Section (Visible if feedback not hidden) */}
                   {!hideFeedback && subTab === 'reviews' && (
                     <div className="pt-6 border-t border-slate-200 space-y-4">
-                      <UserReviewsModule 
-                        reviews={reviews
-                          .filter(r => !r.targetUserId || r.targetUserId === profileUser.id || (profileUser.id === 'user_1' && !r.targetUserId))
-                          .map(r => ({
-                            id: r.id,
-                            orderId: r.orderId,
-                            reviewerName: r.reviewerName || r.buyerName || 'Client',
-                            reviewerAvatar: r.reviewerAvatar || r.avatar,
-                            targetUserId: profileUser.id,
-                            rating: r.rating || 5,
-                            comment: r.comment || r.review || 'Great work and fast delivery.',
-                            orderTitle: r.orderTitle || r.gigTitle || 'Workstream Milestone',
-                            createdAt: r.createdAt || r.timeAgo || 'Recently'
-                          }))}
-                        targetUserName={profileUser.name}
-                      />
+                      <Reviews allReviews={mappedReviews} targetUser={profileUser} />
                     </div>
                   )}
 

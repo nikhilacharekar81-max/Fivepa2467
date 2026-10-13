@@ -1,25 +1,32 @@
 import React from 'react';
 import { Star, CheckCircle2 } from 'lucide-react';
-import { Gig, Review } from '../../types';
+import { Gig, Review, UserAccount } from '../../types';
 import { SEED_REVIEWS } from '../../data/completeSeedDataset';
 
 interface ReviewsProps {
-  currentGig: Gig;
+  currentGig?: Gig;
+  targetUser?: UserAccount;
   allReviews?: Review[];
 }
 
 export const Reviews: React.FC<ReviewsProps> = ({
   currentGig,
+  targetUser,
   allReviews
 }) => {
 
   // Collect reviews for this gig or freelancer
   const dataset = allReviews && allReviews.length > 0 ? allReviews : SEED_REVIEWS;
   
-  const initialGigReviews = dataset.filter(r => 
-    r.targetUserId === currentGig.freelancerId || 
-    (r.orderTitle && r.orderTitle.toLowerCase().includes(currentGig.title.toLowerCase().substring(0, 15)))
-  );
+  const initialGigReviews = dataset.filter(r => {
+    if (currentGig) {
+        return r.targetUserId === currentGig.freelancerId || 
+               (r.orderTitle && r.orderTitle.toLowerCase().includes(currentGig.title.toLowerCase().substring(0, 15)));
+    } else if (targetUser) {
+        return r.targetUserId === targetUser.id;
+    }
+    return false;
+  });
 
   // Fallback realistic reviews if dataset doesn't have specific ones for this gig
   const fallbackReviews: Review[] = [
@@ -63,8 +70,8 @@ export const Reviews: React.FC<ReviewsProps> = ({
 
   const filteredReviews = initialGigReviews.length > 0 ? initialGigReviews : fallbackReviews;
 
-  const avgRating = currentGig.rating || 5.0;
-  const totalCount = currentGig.reviewsCount || filteredReviews.length;
+  const avgRating = currentGig?.rating || 5.0;
+  const totalCount = currentGig?.reviewsCount || filteredReviews.length;
 
   return (
     <div className="pt-6 font-sans space-y-6">

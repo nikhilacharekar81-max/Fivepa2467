@@ -46,7 +46,10 @@ export const UserSwitchModal: React.FC<UserSwitchModalProps> = ({
             return (
               <div 
                 key={u.id}
-                onClick={() => onSelectUser(u)}
+                onClick={() => {
+                  console.log('Switching user:', u.name);
+                  onSelectUser(u);
+                }}
                 className={`flex items-center justify-between p-3.5 rounded-2xl border transition-all cursor-pointer ${isActive ? 'bg-slate-900 text-white border-slate-900 shadow-md' : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-fiverr-dark'}`}
               >
                 <div className="flex items-center gap-3">
